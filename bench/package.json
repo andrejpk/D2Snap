@@ -1,0 +1,27 @@
+{
+  "name": "@perception-bench/harness",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.6.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test \"tests/**/*.test.ts\"",
+    "matrix": "node --experimental-strip-types src/print-matrix.ts",
+    "check": "pnpm typecheck && pnpm test && pnpm matrix"
+  },
+  "dependencies": {
+    "@perception-bench/scenarios": "workspace:*",
+    "dom-accessibility-api": "0.7.0",
+    "jsdom": "22.1.0",
+    "marked": "15.0.12",
+    "zod": "3.25.67"
+  },
+  "devDependencies": {
+    "@types/jsdom": "21.1.7",
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3"
+  }
+}
