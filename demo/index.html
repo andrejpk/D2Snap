@@ -6,24 +6,28 @@
         <title>D2Snap | Demo</title>
         <link rel="stylesheet" href="./demo.css">
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/webfuse-com/dom-relief/styles/dom-relief.css">
-        <script src="https://cdn.jsdelivr.net/gh/webfuse-com/d2snap/dist.browser/D2Snap.js"></script>
         <script src="https://cdn.jsdelivr.net/gh/webfuse-com/dom-relief/dist/browser/dom-relief.js"></script>
+        <script src="https://cdn.jsdelivr.net/gh/webfuse-com/accessibility-tree/dist/api.browser.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
     </head>
     <body>
         <header>
             <h1>D2Snap &hairsp; | &hairsp; Demo</h1>
             <nav>
-                <a class="button button--subtle" target="_blank" href="https://github.com/webfuse-com/D2Snap">
+                <a class="button button--light" target="_blank" href="https://github.com/webfuse-com/D2Snap">
                     <img src="./res/github-logo.webp" alt="GitHub">
                 </a>
-                <a class="button button--subtle" target="_blank" href="https://arxiv.org/abs/2508.04412">
+                <a class="button button--light" target="_blank" href="https://arxiv.org/abs/2508.04412">
                     <img src="./res/arxiv-logo.webp" alt="arXiv">
                 </a>
             </nav>
         </header>
         <main>
             <section class="panel content">
-                <textarea name="html-input" placeholder="HTML input"></textarea>
+                <div class="textarea-wrapper">
+                    <textarea name="html-input" placeholder="HTML input"></textarea>
+                    <button type="button" class="button button--s clear-button" data-clear="html-input">Clear</button>
+                </div>
                 <div class="card">
                     <form name="downsampling-params">
                         <section>
@@ -51,13 +55,11 @@
                                 <input type="range" min="0" max="1" step="0.1" value="0.5" name="downsampling-rA">
                                 <output for="downsampling-rA"></output>
                             </label>
-                            <small class="text-s text-dim">DOM pre-processing (filtering, normalisation) always applies.</small>
-                        </section>
-                        <section>
                             <table>
                                 <tr>
                                     <td>
-                                        <label for="downsampling-markdown" title="Whether to translate HTML text formatting to Markdown">
+                                        <label for="downsampling-markdown"
+                                            title="Whether to translate HTML text formatting to Markdown">
                                             Markdown
                                         </label>
                                     </td>
@@ -65,17 +67,64 @@
                                         <input type="checkbox" name="downsampling-markdown">
                                     </td>
                                 </tr>
+                            </table>
+                        </section>
+                        <section>
+                            <table>
                                 <tr>
                                     <td>
-                                        <label for="downsampling-textrank" title="Whether to apply the TextRank algorithm to text at the sentence level before truncation">
+                                        <label for="downsampling-normalizers"
+                                            title="Whether to pre-process the DOM with the default normalizers (filtering, normalisation) before downsampling">
+                                            Normalizers
+                                        </label>
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" name="downsampling-normalizers" checked>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <label for="downsampling-text-ranker" title="Whether to rank text at the sentence level before truncation (TextRank) – otherwise, the leading sentences are kept">
                                             <a href="https://aclanthology.org/W04-3252/" target="_blank">TextRank</a>
                                         </label>
                                     </td>
                                     <td>
-                                        <input type="checkbox" name="downsampling-textrank" checked>
+                                        <input type="checkbox" name="downsampling-text-ranker" checked>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <label for="downsampling-empty-elements"
+                                            title="Whether to remove elements without contents after downsampling (void and actionable elements are kept)">
+                                            Filter Empty
+                                        </label>
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" name="downsampling-empty-elements" checked>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <label for="downsampling-unique-ids"
+                                            title="Whether to assign unique IDs to elements (data-uid attribute) – traceable to the input DOM">
+                                            Unique IDs
+                                        </label>
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" name="downsampling-unique-ids">
                                     </td>
                                 </tr>
                             </table>
+                        </section>
+                        <section>
+                            <button class="button button--s" type="button" data-snapshot="google"
+                                title="Example: snapshot from https://google.com">
+                                Google
+                            </button>
+                            <button class="button button--s" type="button" data-snapshot="wikipedia"
+                                title="Example: snapshot from https://wikipedia.org/wiki/Downsampling_(signal_processing)">
+                                Wikipedia
+                            </button>
                         </section>
                     </form>
                 </div>
@@ -86,42 +135,54 @@
                     <div class="tabs-body">
                         <div class="content">
                             <textarea name="html-output" readonly></textarea>
-                            <div class="card">
-                                <div class="flex" id="dom-results">
-                                    <!-- <p class="nowrap">
-                                        <span data-key="originalNodes">n</span>
-                                        →
-                                        <span data-key="snapshotNodes">m</span> Nodes
-                                    </p> -->
-                                    <div class="flex-space"></div>
-                                    <p class="flex flex--xs">
-                                        <span class="text-primary text-l nowrap"
-                                            title="Result size compared to original size (raw bytes)">
-                                            📦 &hairsp;
-                                            <b data-key="sizeRatio">x</b> %
-                                        </span>
-                                        <span class="nowrap">
-                                            (
-                                                <span class="text-primary"><span data-key="snapshotSize">y</span></span>
-                                                /
-                                                <span data-key="originalSize">z</span>
-                                            )
-                                        </span>
-                                        <span class="nowrap"
-                                            title="Estimated LLM input tokens">
-                                            ~ <span data-key="tokenEstimate">T</span> Tokens
-                                        </span>
-                                    </p>
-                                </div>
-                            </div>
+                            <button type="button" class="button button--s copy-button" data-copy="html-output">Copy</button>
+                        </div>
+                        <div class="content">
+                            <textarea name="a11y-tree-output" readonly></textarea>
+                            <button type="button" class="button copy-button" data-copy="a11y-tree-output">Copy</button>
                         </div>
                         <div class="content">
                             <textarea name="index-output" readonly></textarea>
+                            <button type="button" class="button button--s copy-button" data-copy="index-output">Copy</button>
+                        </div>
+                        <div class="content">
+                            <textarea name="index-json-output" readonly></textarea>
+                            <button type="button" class="button button--s copy-button" data-copy="index-json-output">Copy</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="flex" id="dom-results">
+                            <p class="nowrap"
+                                title="Total input-to-output time (across all representations)">
+                                ⏱️ &hairsp;
+                                <span data-key="duration">t</span> ms
+                            </p>
+                            <div class="flex-space"></div>
+                            <p class="flex flex--xs">
+                                <span class="text-primary text-l nowrap"
+                                    title="Result size compared to original size (raw bytes)">
+                                    📦 &hairsp;
+                                    <b data-key="sizeRatio">x</b> %
+                                </span>
+                                <span class="nowrap">
+                                    (
+                                        <span class="text-primary"><span data-key="snapshotSize">y</span></span>
+                                        /
+                                        <span data-key="originalSize">z</span>
+                                    )
+                                </span>
+                                <span class="nowrap"
+                                    title="Estimated LLM input tokens">
+                                    ~ <span data-key="tokenEstimate">T</span> Tokens
+                                </span>
+                            </p>
                         </div>
                     </div>
                     <div class="tabs-header">
                         <button>HTML</button>
+                        <button>Accessibility Tree</button>
                         <button>Index List</button>
+                        <button>Index JSON</button>
                     </div>
                 </div>
             </section>
@@ -153,6 +214,7 @@
                         <button>3D Footprint</button>
                         <button>GUI (no styles)</button>
                     </div>
+                </div>
             </section>
         </main>
         <footer>
@@ -161,6 +223,42 @@
                 &ensp; | &ensp; Beyond Pixels: Exploring DOM Downsampling for LLM-Based Web Agents
             </small>
         </footer>
-        <script src="./demo.js"></script>
+        <script>
+            (async () => {
+                // Latest local build if available (e.g., localhost), published bundle otherwise (e.g., GitHub Pages)
+                const D2SNAP_SOURCES = [
+                    "../dist.browser/D2Snap.js",
+                    "https://cdn.jsdelivr.net/gh/webfuse-com/d2snap/dist.browser/D2Snap.js"
+                ];
+
+                const loadScript = src => {
+                    return new Promise((resolve, reject) => {
+                        const script = document.createElement("script");
+
+                        script.src = src;
+                        script.addEventListener("load", resolve);
+                        script.addEventListener("error", reject);
+
+                        document.head.appendChild(script);
+                    });
+                };
+
+                for(const src of D2SNAP_SOURCES) {
+                    try {
+                        await loadScript(src);
+
+                        console.info(`D2Snap loaded from ${src}`);
+
+                        break;
+                    } catch {
+                        console.info(`D2Snap not available from ${src}`);
+                    }
+                }
+
+                await loadScript("./demo.js");
+            })();
+        </script>
+        <script defer src="demo.snapshot.google.js"></script>
+        <script defer src="demo.snapshot.wikipedia.js"></script>
     </body>
 </html>

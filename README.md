@@ -39,39 +39,40 @@
 </section>
 ```
 
-<p align="center">↓ D2Snap ↓</p>
+<p align="center">↓ D2Snap <sub>(rE = 0.3, rA = 0.3, rT = 0)</sub> ↓</p>
 
 ``` html
 <section class="container" required="true" type="example">
   <div class="mx-auto" required="false">
     # Our Pizza
     <div>
-      ## Margherita
-      A simple classic: mozzarella, tomatoes and basil.
-      An everyday choice!
-      <button type="button">Add</button>
-      ## Capricciosa
-      A rich taste: mozzarella, ham, mushrooms, artichokes and olives.
-      A true favourite!
-      <button type="button">Add</button>
+      ## Margherita A simple classic: mozzarella, tomatoes and basil. An everyday choice!
+      <button type="button">
+        Add
+      </button>
+      ## Capricciosa A rich taste: mozzarella, ham, mushrooms, artichokes and olives. A true favourite!
+      <button type="button">
+        Add
+      </button>
     </div>
   </div>
 </section>
 ```
 
-<p align="center">↓ D2Snap ↓</p>
+<p align="center">↓ D2Snap <sub>(rE = 1, rA = 1, rT = 0)</sub> ↓</p>
 
 ``` html
-# Our Pizza
-## Margherita
-A simple classic: mozzarella, tomatoes and basil.
-An everyday choice!
-<button>Add</button>
-## Capricciosa
-A rich taste: mozzarella, ham, mushrooms, artichokes and olives.
-A true favourite!
-<button>Add</button>
+# Our Pizza ## Margherita A simple classic: mozzarella, tomatoes and basil. An everyday choice!
+<button>
+  Add
+</button>
+## Capricciosa A rich taste: mozzarella, ham, mushrooms, artichokes and olives. A true favourite!
+<button>
+  Add
+</button>
 ```
+
+> Output formatted in debug mode.
 
 ##
 
@@ -98,30 +99,33 @@ import * as D2Snap from "@webfuse-com/d2snap";
 <script src="https://cdn.jsdelivr.net/gh/webfuse-com/D2Snap@main/dist.browser/D2Snap.js"></script>
 ```
 
+> The browser bundle exposes the API via the global `window.D2Snap`.
+
 ##
 
 ### Usage
 
 ``` ts
 D2Snap.d2Snap(
-  dom: DOM,
+  dom: DOM | string,
   rE: number, rA: number, rT: number,
-  options?: Options
+  options?: D2SnapOptions
 ): Promise<{
-  dom: string;
+  dom: Element;
   innerHTML: string;  // alias: html
   outerHTML: string;
   meta: object;
 }>
 
 D2Snap.adaptiveD2Snap(
-  dom: DOM,
-  maxTokens: number = 4096,
+  dom: DOM | string,
+  maxTokens: number = 32768,
   maxIterations: number = 5,
-  options?: Options
+  options?: D2SnapOptions
 ): Promise<{
-  dom: string;
-  html: string;
+  dom: Element;
+  innerHTML: string;  // alias: html
+  outerHTML: string;
   meta: object;
   parameters: object;
   adaptiveIterations: number;
@@ -154,13 +158,13 @@ npm run test
 ```
 
 ```
-npm run test:<SUITE> -- [<TEST-NAME=*> # e.g., D2Snap.options.filter] [<FLAG>*]
+npm run test:<SUITE> -- [<TEST-NAME=*> # e.g., D2Snap.options.minify] [<FLAG>*]
 ```
 
 | Suite | Flags | Note |
 | :- | :- | :- |
 | `unit` | | |
-| `end-to-end` | |
+| `end-to-end` | | |
 | `regression` | | |
 | `regression:syntax` | `--next-failure` | _Over 90 real-world web pages_ |
 
@@ -169,7 +173,7 @@ npm run test:<SUITE> -- [<TEST-NAME=*> # e.g., D2Snap.options.filter] [<FLAG>*]
 > Provide LLM API provider key(s) to .env (compare [example](./.env.example)).
 
 ``` console
-cs eval && pip install -r requirements.txt
+cd eval && pip install -r requirements.txt
 ```
 
 ##### Success Rate
@@ -199,8 +203,6 @@ npm run eval:ratio
 ``` console
 npm run snapshots:create
 ```
-
-> 
 
 ##
 

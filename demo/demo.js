@@ -24,16 +24,19 @@
   </div>
 </section>
 		`.trim();
-	const ACTIONABLE_AND_TEXT_FORMATTING_TAG_NAMES = [
-		"A", "BUTTON", "DETAILS", "FORM", "INPUT", "LABEL", "SELECT", "OPTION", "SUMMARY", "TEXTAREA", "ADDRESS", "BLOCKQUOTE", "B", "CODE", "EM", "FIGURE", "FIGCAPTION", "H1", "H2", "H3", "H4", "H5", "H6", "HR", "IMG", "LI", "OL", "P", "PRE", "SMALL", "SPAN", "STRONG", "SUB", "SUP", "TABLE", "TBODY", "TD", "THEAD", "TH", "TR", "UL"
-	];
 	const MAX_INDEX_LIST_TEXT_LENGTH = 100;
 	const MIN_PANEL_WIDTH_FRACTION = 0.2;
+	const LARGE_INPUT_SIZE_THRESHOLD = 100 * 2**10;	// 100 kB
+	// Frames never load styles (nor scripts, fonts, or nested frames) – only images – for a fair before/after comparison
+	const FRAME_CONTENT_SECURITY_POLICY = "default-src 'none'; img-src * data: blob:";
 
 
 	const textareaHTMLInput = document.querySelector("textarea[name='html-input']");
 	const textareaHTMLOutput = document.querySelector("textarea[name='html-output']");
+	const textareaA11yTreeOutput = document.querySelector("textarea[name='a11y-tree-output']");
 	const textareaIndexOutput = document.querySelector("textarea[name='index-output']");
+	const textareaIndexJSONOutput = document.querySelector("textarea[name='index-json-output']");
+	const outputTabs = textareaHTMLOutput.closest(".tabs");
 	const inputFrame = document.querySelector("[data-frame='input']");
 	const outputFrame = document.querySelector("[data-frame='output']");
 	const canvas = document.querySelector("canvas#dom-relief");
@@ -50,6 +53,8 @@
 			.map(output => [ output.htmlFor, output ])
 	);
 
+	const snapshotButtons = [ ...document.querySelectorAll("button[data-snapshot]") ];
+
 	const reliefInputs = {
 		flat: document.querySelector("input[name='relief-flat']"),
 		ortho: document.querySelector("input[name='relief-ortho']")
@@ -61,8 +66,17 @@
 		rE: document.querySelector("input[name='downsampling-rE']"),
 		rA: document.querySelector("input[name='downsampling-rA']"),
 		rT: document.querySelector("input[name='downsampling-rT']"),
+		normalizers: document.querySelector("input[name='downsampling-normalizers']"),
+		uniqueIDs: document.querySelector("input[name='downsampling-unique-ids']"),
 		markdown: document.querySelector("input[name='downsampling-markdown']"),
-		textRank: document.querySelector("input[name='downsampling-textrank']")
+		textRanker: document.querySelector("input[name='downsampling-text-ranker']"),
+		filterEmptyElements: document.querySelector("input[name='downsampling-empty-elements']")
+	};
+
+	// Text formatting elements count as actionables (preserved as HTML)
+	const isActionableOrTextElement = element => {
+		return D2Snap.defaults.classifiers.isActionableElement(element)
+			|| D2Snap.defaults.classifiers.isTextElement(element);
 	};
 
 
@@ -86,17 +100,52 @@
 			.join(" ");
 	}
 
-	function getDOMIndex(dom) {
+	function getTruncatedDirectText(element) {
+		const directText = getDirectText(element);
+
+		return (directText.length > MAX_INDEX_LIST_TEXT_LENGTH)
+			? `${directText.slice(0, MAX_INDEX_LIST_TEXT_LENGTH)}…`
+			: directText;
+	}
+
+	function getAccessibilityTreeRepresentation(dom) {
+		const tree = new AccessibilityTree(dom)
+			.build()
+			.toString({
+				collapseEmptyProperties: true,
+				sourceStringCb: element => element.getAttribute?.("data-uid") || undefined
+			});
+
+		return jsyaml.dump(JSON.parse(tree), {
+			lineWidth: -1
+		});
+	}
+
+	function getIndexListRepresentation(dom) {
 		return [ ...dom.querySelectorAll("*") ]
 			.map((element, i) => {
-				const directText = getDirectText(element);
-				const text = (directText.length > MAX_INDEX_LIST_TEXT_LENGTH)
-					? `${directText.slice(0, MAX_INDEX_LIST_TEXT_LENGTH)}…`
-					: directText;
+				const text = getTruncatedDirectText(element);
 
 				return `[${i}] ${element.tagName.toUpperCase()}${text ? ` "${text}"` : ""}`;
 			})
 			.join("\n");
+	}
+
+	function getIndexJSONRepresentation(dom) {
+		return JSON.stringify(
+			[ ...dom.querySelectorAll("*") ]
+				.map(element => {
+					const role = element.getAttribute("role");
+
+					return {
+						tagName: element.tagName.toUpperCase(),
+						text: getTruncatedDirectText(element),
+						...(role ? { role } : {})
+					};
+				}),
+			null,
+			2
+		);
 	}
 
 	function updateMeta(meta) {
@@ -109,14 +158,26 @@
 		}
 	}
 
-	function renderResult3D(htmlInput, result) {
-		const htmlOutput = result.html;
+	let originalSize = 0;
 
-		textareaHTMLOutput.value = htmlOutput;
-		textareaIndexOutput.value = getDOMIndex(result.dom);
+	function updateSizeMeta() {
+		const textarea = outputTabs.querySelector(".tabs-body > .active textarea");
 
+		if(!textarea || !originalSize) return;
+
+		const size = textarea.value.length;
+
+		updateMeta({
+			tokenEstimate: formatNumber(Math.round(size / 4)),
+			sizeRatio: Math.round(size / originalSize * 100),
+			originalSize: formatBytes(originalSize),
+			snapshotSize: formatBytes(size)
+		});
+	}
+
+	function renderResult3D(htmlInput, result, duration) {
 		domRelief.update({
-			documents: [ htmlInput, htmlOutput ]
+			documents: [ htmlInput, result.html ]
 		});
 
 		const [ originalDOMMeta, snapshotDOMMeta ] = domRelief.meta.documents;
@@ -125,22 +186,27 @@
 			layerThickness: Math.max(1, snapshotDOMMeta.nodes / 2500)
 		});
 
+		originalSize = result.meta.originalSize;
+
 		updateMeta({
-			tokenEstimate: formatNumber(result.meta.tokenEstimate),
-			sizeRatio: Math.round(result.meta.sizeRatio * 100),
-			originalSize: formatBytes(result.meta.originalSize),
-			snapshotSize: formatBytes(result.meta.snapshotSize),
 			originalNodes: formatNumber(originalDOMMeta.nodes),
-			snapshotNodes: formatNumber(snapshotDOMMeta.nodes)
+			snapshotNodes: formatNumber(snapshotDOMMeta.nodes),
+			duration: formatNumber(Math.round(duration))
 		});
+
+		updateSizeMeta();
+	}
+
+	function createFrameDocument(html) {
+		return `<meta http-equiv="Content-Security-Policy" content="${FRAME_CONTENT_SECURITY_POLICY}">${html}`;
 	}
 
 	function renderResultFrames(htmlInput, result) {
 		if(htmlInput) {
-			inputFrame.srcdoc = htmlInput;
+			inputFrame.srcdoc = createFrameDocument(htmlInput);
 		}
 		if(result) {
-			outputFrame.srcdoc = result.outerHTML;
+			outputFrame.srcdoc = createFrameDocument(result.outerHTML);
 		}
 	}
 
@@ -155,32 +221,47 @@
 		const rT = parseFloat(downsamplingInputs.rT.value);
 		const options = {
 			debug: true,
+			minify: false,	// Input is normalized (minified, formatted) upon paste
+			normalizers: downsamplingInputs.normalizers.checked
+				? D2Snap.defaults.NORMALIZERS
+				: [],
+			uniqueIDs: downsamplingInputs.uniqueIDs.checked,
+			sentenceRanker: downsamplingInputs.textRanker.checked
+				? D2Snap.defaults.SENTENCE_RANKER
+				: null,	// No ranking: leading sentences are kept
+			filterEmptyElements: downsamplingInputs.filterEmptyElements.checked,
 			skip: {
-				markdown: !downsamplingInputs.markdown.checked,
-				textRank: !downsamplingInputs.textRank.checked
+				markdown: !downsamplingInputs.markdown.checked
 			}
 		};
 
+		const start = performance.now();
 		const result = await D2Snap.d2Snap(
 			htmlInput,
 			rE, rA, rT,
 			options
 		);
+		const duration = performance.now() - start;
 		const resultPreservedTextFormattingElements = await D2Snap.d2Snap(
 			htmlInput,
 			rE, rA, rT,
 			{
 				...options,
 
-				classification: {
-					actionableElements: ACTIONABLE_AND_TEXT_FORMATTING_TAG_NAMES
+				classifiers: {
+					actionableElements: isActionableOrTextElement
 				}
 			}
 		);
 
 		if(id != updateCount) return;
 
-		renderResult3D(htmlInput, result);
+		textareaHTMLOutput.value = result.dom;
+		textareaA11yTreeOutput.value = getAccessibilityTreeRepresentation(result.dom);
+		textareaIndexOutput.value = getIndexListRepresentation(result.dom);
+		textareaIndexJSONOutput.value = getIndexJSONRepresentation(result.dom);
+
+		renderResult3D(htmlInput, result, duration);
 		renderResultFrames(null, resultPreservedTextFormattingElements);
 	}
 
@@ -189,10 +270,14 @@
 		for(const iframe of  [ inputFrame, outputFrame ]) {
 			iframe
 				.addEventListener("load", () => {
-					iframe.contentDocument
-						.documentElement
-						.style
-						.fontSize = "9px";
+					const sheet = new iframe.contentWindow.CSSStyleSheet();
+
+					sheet.replaceSync(`
+						html { font-size: 9px; }
+						button, input, select, textarea { font-size: inherit; }
+					`);
+
+					iframe.contentDocument.adoptedStyleSheets = [ sheet ];
 				});
 		}
 	}
@@ -226,7 +311,70 @@
 			});
 	}
 
+	function setupSizeMeta() {
+		outputTabs.querySelectorAll(".tabs-header > button")
+			.forEach(button => {
+				button.addEventListener("click", updateSizeMeta);
+			});
+	}
+
+	function setupCopyButtons() {
+		document.querySelectorAll("button[data-copy]")
+			.forEach(button => {
+				const textarea = document.querySelector(`textarea[name='${button.dataset.copy}']`);
+				const label = button.textContent;
+
+				button
+					.addEventListener("click", async () => {
+						await navigator.clipboard.writeText(textarea.value);
+
+						button.textContent = "Copied";
+
+						setTimeout(() => {
+							button.textContent = label;
+						}, 1500);
+					});
+			});
+	}
+
+	function setupClearButtons() {
+		document.querySelectorAll("button[data-clear]")
+			.forEach(button => {
+				const textarea = document.querySelector(`textarea[name='${button.dataset.clear}']`);
+
+				button
+					.addEventListener("click", () => {
+						textarea.value = "";
+						textarea.focus();
+						textarea.dispatchEvent(new Event("input"));
+					});
+			});
+	}
+
+	// Notation of snapshots (minified, formatted) without any reduction, so input and output compare.
+	async function normalizeInput() {
+		const { html } = await D2Snap.d2Snap(
+			textareaHTMLInput.value,
+			0, 0, 0,
+			{
+				debug: true,
+				filterEmptyElements: false,
+				normalizers: [],
+				sentenceRanker: null,
+				skip: {
+					markdown: true
+				}
+			}
+		);
+
+		textareaHTMLInput.value = html;
+	}
+
 	function setupDownsamplingParams() {
+		const isDeferredUpdate = input => {
+			return (input.type === "range" && textareaHTMLInput.value.length > LARGE_INPUT_SIZE_THRESHOLD);
+		};
+
 		Object.values(downsamplingInputs)
 			.forEach(input => {
 				const output = parameterOutputs[input.name];
@@ -242,19 +390,45 @@
 				input
 					.addEventListener("input", () => {
 						updateOutput();
+
+						if(isDeferredUpdate(input)) return;
+
+						updateState();
+					});
+				input
+					.addEventListener("change", () => {
+						if(!isDeferredUpdate(input)) return;
+
 						updateState();
 					});
 			});
 
-		textareaHTMLInput.value ||= DEFAULT_HTML_INPUT;
+		textareaHTMLInput.addEventListener("input", async e => {
+			(e.inputType === "insertFromPaste")
+				&& await normalizeInput();
 
-		renderResultFrames(textareaHTMLInput.value, null);
-
-		textareaHTMLInput.addEventListener("input", () => {
 			renderResultFrames(textareaHTMLInput.value, null);
 
 			updateState();
 		});
+	}
+
+	function setupSnapshots() {
+		snapshotButtons
+			.forEach(button => {
+				const snapshot = window.SNAPSHOTS?.[button.dataset.snapshot];
+
+				button
+					.addEventListener("click", async () => {
+						textareaHTMLInput.value = snapshot;
+
+						await normalizeInput();
+
+						renderResultFrames(textareaHTMLInput.value, null);
+
+						updateState();
+					});
+			});
 	}
 
 	function setupRelief() {
@@ -361,9 +535,25 @@
 
 	setupIframes();
 	setupTabs();
+	setupSizeMeta();
+	setupCopyButtons();
+	setupClearButtons();
 	setupDownsamplingParams();
+	setupSnapshots();
 	setupRelief();
 	setupResizers();
 
-	updateState();
+	textareaHTMLInput.value ||= DEFAULT_HTML_INPUT;
+
+	normalizeInput()
+		.then(() => {
+			renderResultFrames(textareaHTMLInput.value, null);
+
+			updateState();
+		})
+		.finally(() => {
+			document.body
+				.classList
+				.add("ready");
+		});
 })();
