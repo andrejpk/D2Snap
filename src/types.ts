@@ -16,6 +16,12 @@ export type DOM = Document | Element;
 
 export type ElementClassifierFn<T> = (element: T) => boolean;
 export type SentenceRankerFn = (sentences: string[]) => string[];
+export type NodeNormalizerFn<T extends Node = Node> = (
+    virtualTarget: T,
+    liveTarget: T,
+    document: Document,
+    classifiers: D2SnapOptions["classifiers"]
+) => void;
 
 
 export interface ElementWithDepth extends HTMLElement {
@@ -41,17 +47,8 @@ export interface D2SnapOptions {
         textElements: ElementClassifierFn<Element>;
     };
     debug: boolean;
-    filter: {
-        attributes: string[];
-        dataURLs: boolean;
-        elements: string[];
-        emptyElements: boolean;
-    };
-    normalize: {
-        iconClasses: string[];
-        labelAttributes: string[];
-        svgToImg: boolean;
-    };
+    filterEmptyElements: boolean;
+    normalizers: NodeNormalizerFn | NodeNormalizerFn[];
     sentenceRanker: SentenceRankerFn;
     skip: {
         markdown: boolean;

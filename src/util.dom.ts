@@ -84,6 +84,7 @@ export function resolveReplacingNodes(
 
 // Pre-order DFS: parent before child.
 // Children are read after the callback, so the latest DOM is traversed.
+// Attributes are visited (as nodes) after their element, before its children.
 export function traverseDom<T>(
 	root: Element,
 	filter: number = NodeFilter.SHOW_ALL,
@@ -92,8 +93,10 @@ export function traverseDom<T>(
 	const showElement: boolean = ((filter & NodeFilter.SHOW_ELEMENT) !== 0);
 	const showText: boolean = ((filter & NodeFilter.SHOW_TEXT) !== 0);
 	const showComment = ((filter & NodeFilter.SHOW_COMMENT) !== 0);
+	const showAttribute: boolean = ((filter & NodeFilter.SHOW_ATTRIBUTE) !== 0);
 
-	// Check if root is connected: 'isConnected' instead of an ancestor walk ('contains').
+	// Connected root check: 'isConnected' instead of an ancestor walk ('contains').
+	// Assumes nodes are not moved out of the root into the same document.
 	const isRootConnected: boolean = root.isConnected;
 	const isInRoot = (node: Node): boolean => {
 		return isRootConnected
@@ -126,8 +129,18 @@ export function traverseDom<T>(
 			? (cb(node as T) as Node[] | undefined)
 			: undefined;
 
+		if(showAttribute && (node.nodeType === NodeType.ELEMENT_NODE)) {
+			for(const attr of [ ...(node as Element).attributes ]) {
+				if(!isInRoot(node)) break;
+				// Removed by a previous callback
+				if(attr.ownerElement !== node) continue;
+
+				cb(attr as T);
+			}
+		}
+
 		// Attached: continue with the latest children.
-		// Detached: continue with the returned replacement nodes, or the nodes that replaced the original.
+		// Detached: continue with the returned replacement nodes, else with the nodes replacing the original.
 		const nextNodes: Node[] = isInRoot(node)
 			? [ ...node.childNodes ]
 			: (replacingNodes ?? resolveReplacingNodes(parentNode, previousSibling, nextSibling));

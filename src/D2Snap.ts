@@ -15,21 +15,14 @@ import { CONFIG } from "./var.CONFIG.js";
 import {
 	DEFAULT_ATTRIBUTE_SCORES
 } from "./var.DEFAULTS_ATTRIBUTE_SCORES.js";
-import {
-	DEFAULT_FILTER_ATTRIBUTE_NAMES,
-	DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES,
-	DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES
-} from "./var.DEFAULTS_ATTRIBUTES.js";
-import {
-	DEFAULT_FILTER_TAG_NAMES
-} from "./var.DEFAULTS_TAGS.js";
 import { resolveDocument, resolveRoot, traverseDom } from "./util.dom.js";
 import { isInlineElement, isVoidElement } from "./util.html.js";
 import { postProcessDOM, postProcessHTML, preProcessDOM } from "./D2Snap.processing.js";
 import { deepMerge } from "./util.obj.js";
 import { transformWithRanking } from "./util.text.js";
-import isActionableElement from "./classifier.actionable-element.js";
-import isTextElement from "./classifier.text-formatting-element.js";
+import isActionableElement from "./classifier.isActionableElement.js";
+import isTextElement from "./classifier.isTextElement.js";
+import { DEFAULT_NORMALIZERS } from "./normalizers.js";
 
 
 const WHITESPACE_REGEX: RegExp = /^\s$/;
@@ -105,18 +98,9 @@ export function d2Snap(
 			textElements: isTextElement
 		},
 		debug: false,
-		filter: {
-			attributes: DEFAULT_FILTER_ATTRIBUTE_NAMES,
-			dataURLs: true,
-			elements: DEFAULT_FILTER_TAG_NAMES,
-			emptyElements: true
-		},
+		filterEmptyElements: true,
 		minify: true,
-		normalize: {
-			iconClasses: DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES,
-			labelAttributes: DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES,
-			svgToImg: true
-		},
+		normalizers: DEFAULT_NORMALIZERS,
 		sentenceRanker: rankSentences,
 		skip: {
 			markdown: false,
@@ -296,14 +280,18 @@ export function d2Snap(
 	const virtualDOM = (rootElement.nodeType === NodeType.DOCUMENT_NODE)
 		? inertDoc.documentElement
 		: inertDoc.body;
+	// Live equivalent of the virtual DOM root (or of its BODY-wrapped child).
+	const liveDOM: Element = (rootElement.localName.toLowerCase() === "html")
+		? (rootElement.querySelector("body") ?? rootElement)
+		: rootElement;
 	timings.clone = t() - t0;
 
 	// Pre-proces
 	t0 = t();
-	preProcessDOM(virtualDOM, inertDoc, {
-		filter: optionsWithDefaults.filter,
-		normalize: optionsWithDefaults.normalize
-	}, _isActionableElement);
+	preProcessDOM(virtualDOM, liveDOM, inertDoc, {
+		classifiers: optionsWithDefaults.classifiers,
+		normalizers: optionsWithDefaults.normalizers
+	});
 	timings.preProcessing = t() - t0;
 
 	// Write depth and role per node
@@ -374,7 +362,7 @@ export function d2Snap(
 	// Post-process (DOM)
 	t0 = t();
 	postProcessDOM(virtualDOM, {
-		filter: optionsWithDefaults.filter,
+		filterEmptyElements: optionsWithDefaults.filterEmptyElements,
 		minify: optionsWithDefaults.minify
 	}, _isActionableElement);
 	timings.domPostProcessing = t() - t0;

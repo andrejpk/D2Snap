@@ -24,10 +24,21 @@ export async function adaptiveD2Snap(
 }
 
 
-export { type D2SnapOptions, type TextRankOptions, type D2SnapResult, type AttributeScoring, type ElementClassifierFn, type SentenceRankerFn } from "./types.js";
+export { type D2SnapOptions, type TextRankOptions, type D2SnapResult, type AttributeScoring, type ElementClassifierFn, type NodeNormalizerFn, type SentenceRankerFn } from "./types.js";
 
 export { isActionableElement, isTextElement } from "./classifiers.js";
 export { rankSentences } from "./TextRank.js";
+export {
+	DEFAULT_NORMALIZERS,
+	filterAttributes,
+	filterComments,
+	filterDataURLs,
+	filterElements,
+	filterEmptyImages,
+	iconClassesToImg,
+	labelAttributesToContent,
+	svgToImg
+} from "./normalizers.js";
 
 
 // TODO: Overload with r and rE, rA, rT?

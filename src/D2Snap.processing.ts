@@ -1,17 +1,13 @@
-import { type D2SnapOptions } from "./types.js";
+import { type D2SnapOptions, type NodeNormalizerFn } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
-import { minifyDOM, traverseDom } from "./util.dom.js";
-import { formatHTML, isRawTextElement, isVoidElement } from "./util.html.js";
-import { NON_RENDERED_TAG_NAMES, SVG_LABEL_TAG_NAMES } from "./var.SEMANTICS_TAGS.js";
+import { minifyDOM, resolveReplacingNodes, traverseDom } from "./util.dom.js";
+import { formatHTML, isVoidElement } from "./util.html.js";
 
 
-interface DOMPreProcessingOptions {
-	filter: Pick<D2SnapOptions["filter"], "attributes" | "dataURLs" | "elements" | "emptyElements">;
-	normalize: Pick<D2SnapOptions["normalize"], "iconClasses" | "labelAttributes" | "svgToImg">;
-}
+type DOMPreProcessingOptions = Pick<D2SnapOptions, "classifiers" | "normalizers">;
 
 interface DOMPostProcessingOptions {
-	filter: Pick<D2SnapOptions["filter"], "emptyElements">;
+	filterEmptyElements: boolean;
 	minify: boolean;
 }
 
@@ -20,251 +16,130 @@ interface HTMLPostProcessingOptions {
 }
 
 
-const DATA_URL_ATTRIBUTE_NAME: string = "src";
-const DATA_URL_ATTRIBUTE_VALUE_REGEX: RegExp = /^data:/i;
-const UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER: string = "-";
+function toArray<T>(value: T | T[] | undefined): T[] {
+	if(value === undefined) return [];
 
-
-function normalizeCaseInsensitive(str: string): string {
-	return str.toUpperCase();
+	return Array.isArray(value) ? value : [ value ];
 }
 
-function normalizeCaseInsensitiveArray(tagNames: string[]): string[] {
-	return tagNames
-		.map((tagName: string) => normalizeCaseInsensitive(tagName));
+function mapChildNodes(
+	virtualNode: Node,
+	liveNode: Node,
+	liveByVirtual: Map<Node, Node>
+): void {
+	const virtualChildNodes: NodeListOf<ChildNode> = virtualNode.childNodes;
+	const liveChildNodes: NodeListOf<ChildNode> = liveNode.childNodes;
+
+	for(let i = 0; i < Math.min(virtualChildNodes.length, liveChildNodes.length); i++) {
+		if(virtualChildNodes[i].nodeName !== liveChildNodes[i].nodeName) continue;
+
+		liveByVirtual.set(virtualChildNodes[i], liveChildNodes[i]);
+	}
 }
 
-function elementHasTagName(elementNode: Element, tagName: string): boolean {
-	return normalizeCaseInsensitive(elementNode.tagName) === normalizeCaseInsensitive(tagName);
+function resolveLiveNode(
+	virtualNode: Node,
+	liveByVirtual: Map<Node, Node>,
+	inheritedLiveByVirtual: Map<Node, Node>
+): Node {
+	const resolve = (node: Node): Node | undefined => {
+		return liveByVirtual.get(node) ?? inheritedLiveByVirtual.get(node);
+	};
+
+	if(virtualNode.nodeType !== NodeType.ATTRIBUTE_NODE) return resolve(virtualNode) ?? virtualNode;
+
+	const virtualAttr = virtualNode as Attr;
+	const liveElement: Element | undefined = virtualAttr.ownerElement
+		? resolve(virtualAttr.ownerElement) as Element | undefined
+		: undefined;
+
+	return liveElement?.getAttributeNodeNS(virtualAttr.namespaceURI, virtualAttr.localName)
+		?? virtualAttr;
 }
 
-function hasRenderedText(node: Node): boolean {
-	for(const child of node.childNodes) {
-		if(child.nodeType === NodeType.TEXT_NODE) {
-			if((child.nodeValue ?? "").trim()) return true;
+function applyNormalizers(
+	normalizers: NodeNormalizerFn[],
+	virtualNode: Node,
+	liveNode: Node,
+	inheritedLiveByVirtual: Map<Node, Node>,
+	document: Document,
+	classifiers: DOMPreProcessingOptions["classifiers"]
+): void {
+	for(const normalizer of normalizers) {
+		const parentNode: Node | null = virtualNode.parentNode;
+		const previousSibling: Node | null = virtualNode.previousSibling;
+		const nextSibling: Node | null = virtualNode.nextSibling;
+		const ownerElement: Element | null = (virtualNode as Attr).ownerElement ?? null;
 
-			continue;
+		normalizer(virtualNode, liveNode, document, classifiers);
+
+		// Attachment check in constant time (no ancestor walk).
+		const isAttached: boolean = (virtualNode.nodeType === NodeType.ATTRIBUTE_NODE)
+			? ((virtualNode as Attr).ownerElement === ownerElement)
+			: (virtualNode.parentNode === parentNode);
+
+		if(isAttached) continue;
+
+		// Removed or replaced: replacement nodes inherit the live reference.
+		for(const replacingNode of resolveReplacingNodes(parentNode, previousSibling, nextSibling)) {
+			(replacingNode.nodeType === liveNode.nodeType)
+				&& inheritedLiveByVirtual.set(replacingNode, liveNode);
 		}
 
-		if(child.nodeType !== NodeType.ELEMENT_NODE) continue;
-		if(NON_RENDERED_TAG_NAMES.has(normalizeCaseInsensitive((child as Element).tagName))) continue;
-
-		if(hasRenderedText(child)) return true;
+		return;
 	}
-
-	return false;
-}
-
-function elementHasNoTextContent(elementNode: Element): boolean {
-	return !hasRenderedText(elementNode)
-		&& ![ ...elementNode.querySelectorAll("img[alt]") ]
-			.some((image: Element) => !!resolveAttributeAsString(image, "alt"));
-}
-
-function resolveAttributeAsString(elementNode: Element, attributeName: string): string {
-	return (elementNode.getAttribute(attributeName) ?? "").trim();
-}
-
-function resolveIdReferenceText(elementNode: Element, document: Document, id: string): string {
-	const selector: string = `[id="${id.replace(/["\\]/g, "\\$&")}"]`;
-	const scopes: ParentNode[] = [ elementNode.getRootNode() as ParentNode, document ];
-
-	for(const scope of scopes) {
-		for(const candidate of scope.querySelectorAll?.(selector) ?? []) {
-			const text: string = (candidate.textContent ?? "").trim();
-
-			if(text) return text;
-		}
-	}
-
-	return "";
-}
-
-function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: string[]): string | null {
-	for(const labelAttributeName of labelAttributeNames) {
-		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName);
-
-		if(!labelAttributeValue) continue;
-
-		if(normalizeCaseInsensitive(labelAttributeName) !== normalizeCaseInsensitive("aria-labelledby")) {
-			return labelAttributeValue;
-		}
-
-		const referencedText: string = labelAttributeValue
-			.split(/\s+/)
-			.map((id: string) => resolveIdReferenceText(elementNode, document, id))
-			.filter(Boolean)
-			.join(" ");
-
-		if(referencedText) return referencedText;
-	}
-
-	return null;
-}
-
-function createImage(document: Document, alt: string = ""): HTMLImageElement {
-	const imgSubstituteElementNode: HTMLImageElement = document.createElement("img");
-
-	alt
-		&& imgSubstituteElementNode.setAttribute("alt", alt);
-
-	return imgSubstituteElementNode;
-}
-
-function replaceElementByImage(elementNode: Element, document: Document, alt: string = "") {
-	const imgSubstituteElementNode: HTMLImageElement = createImage(document, alt);
-
-	elementNode.replaceWith(imgSubstituteElementNode);
-
-	return imgSubstituteElementNode;
 }
 
 
 export function preProcessDOM(
-	domRoot: Element,
+	virtualDomRoot: Element,
+	liveDomRoot: Element,
 	document: Document,
-	options: DOMPreProcessingOptions,
-	isActionableElement: (elementNode: Element) => boolean
+	options: DOMPreProcessingOptions
 ): void {
-	const filterElementsTagNames: Set<string> = new Set(normalizeCaseInsensitiveArray(options.filter?.elements ?? []));
-	const filterAttributesNames: Set<string> = new Set(normalizeCaseInsensitiveArray(options.filter?.attributes ?? []));
-	const iconClasses: string[] = options.normalize?.iconClasses ?? [];
-	const labelAttributes: string[] = options.normalize?.labelAttributes ?? [];
+	const normalizers: NodeNormalizerFn[] = toArray(options.normalizers);
 
-	const preResolvedLabels = new WeakMap<Element, string>();
+	// Lazy pairing during the traversal: a node's children are paired when the node
+	// is visited, before its normalizers run.
+	const liveByVirtual: Map<Node, Node> = new Map<Node, Node>();
+	// Replacements created by normalizers (inherit only).
+	const inheritedLiveByVirtual: Map<Node, Node> = new Map<Node, Node>();
 
-	for(const referrer of document.querySelectorAll("[aria-labelledby]")) {
-		const label: string | null = getElementLabelAttribute(referrer, document, labelAttributes);
-		label && preResolvedLabels.set(referrer, label);
-	}
+	// Non-full document input snippets are wrapped by BODY: pair the wrapped child.
+	const virtualDomRootEquivalent: Element = (virtualDomRoot.tagName === liveDomRoot.tagName)
+		? virtualDomRoot
+		: (virtualDomRoot.firstElementChild ?? virtualDomRoot);
 
-	const resolveLabel = (element: Element): string | null => {
-		return preResolvedLabels.get(element) ?? getElementLabelAttribute(element, document, labelAttributes);
-	};
+	liveByVirtual.set(virtualDomRootEquivalent, liveDomRoot);
 
-	traverseDom<HTMLElement>(
-		domRoot,
+	// Root node is not visited.
+	(virtualDomRootEquivalent === virtualDomRoot)
+		&& mapChildNodes(virtualDomRoot, liveDomRoot, liveByVirtual);
+
+	traverseDom<Node>(
+		virtualDomRoot,
 		NodeFilter.SHOW_ALL,
 		(node: Node) => {
-			// Filters + Normalization
+			const pairedLiveNode: Node | undefined = liveByVirtual.get(node);
+
+			// Pair
+			(pairedLiveNode && (node.nodeType === NodeType.ELEMENT_NODE))
+				&& mapChildNodes(node, pairedLiveNode, liveByVirtual);
+
+			// Normalize
 			// STRICT ORDER MATTERS
+			// Root node is not visited, otherwise the DOM would break.
+			// Attributes are visited (as nodes) after their element.
+			// Replacements are traversed next (full normalizer chain, inherited live reference).
 
-			// Filter
-
-			if(node.nodeType === NodeType.COMMENT_NODE) {
-				node.parentNode?.removeChild(node);
-
-				return;
-			}
-
-			if(node.nodeType !== NodeType.ELEMENT_NODE) return;
-
-			const elementNode = node as Element;
-
-			// Filter (optionals)
-			// Root node-destructive operations are no-ops, otherwise the DOm would break.
-			// Non-full document input snippets are wrapped by BODY to have a generic wrapper.
-
-			if(filterElementsTagNames.has(normalizeCaseInsensitive(elementNode.tagName))) {
-				elementNode.remove();
-
-				return;
-			}
-
-			for(const attr of [ ...elementNode.attributes ]) {
-				if(filterAttributesNames.has(normalizeCaseInsensitive(attr.name))) {
-					elementNode.removeAttribute(attr.name);
-				}
-			}
-
-			if(options.filter?.dataURLs) {
-				for(const attr of Array.from(elementNode.attributes)) {
-					if(
-						(attr.name.toLowerCase() !== DATA_URL_ATTRIBUTE_NAME)
-							|| !DATA_URL_ATTRIBUTE_VALUE_REGEX.test(attr.value)
-					) continue;
-
-					elementNode.removeAttribute(attr.name);
-				}
-			}
-
-			if(options.filter?.emptyElements) {
-				if(elementHasTagName(elementNode, "IMG") && !resolveLabel(elementNode)) {
-					if(
-						!resolveAttributeAsString(elementNode, "src")
-						&& !resolveAttributeAsString(elementNode, "alt")
-					 ) {
-						elementNode.remove();
-
-						return;
-					}
-				}
-			}
-
-			// Normalize (optionals)
-
-			// Meta-image to image.
-			if(elementHasTagName(elementNode, "SVG")) {
-				if(options.normalize?.svgToImg) {
-					let labelValue: string = "";
-					for(const svgLabelTagName of SVG_LABEL_TAG_NAMES) {
-						labelValue = (elementNode.querySelector(svgLabelTagName.toLowerCase())?.textContent ?? "").trim();
-						if(labelValue) break;
-					}
-
-					labelValue ||= resolveLabel(elementNode) ?? "";
-
-					return [ replaceElementByImage(elementNode, document, labelValue) ];
-				}
-			} else if(iconClasses.length) {
-				if(elementHasNoTextContent(elementNode) && elementNode.children.length === 0) {
-					let iconfontsInClass: string | null = null;
-
-					for(const className of [ ...elementNode.classList ].reverse()) {
-						const iconfontName: string | undefined = iconClasses
-							.find((name: string) => {
-								return className.startsWith(`${name}${UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER}`)
-							});
-
-						if(!iconfontName) continue;
-
-						iconfontsInClass = className
-							.slice(iconfontName.length + UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER.length);
-
-						break;
-					}
-
-					if(iconfontsInClass) {
-						const alt: string = resolveLabel(elementNode) ?? iconfontsInClass;
-
-						if(!isActionableElement(elementNode)) {
-							return [ replaceElementByImage(elementNode, document, alt) ];
-						} else {
-							elementNode.prepend(createImage(document, alt));
-						}
-					}
-				}
-			}
-
-			// Text-label attributes to text (non-void elements) or 'alt' (image elements).
-			if(labelAttributes.length) {
-				if(!isRawTextElement(elementNode.tagName)) {
-					const labelAttributeValue: string | null = resolveLabel(elementNode);
-
-					if(labelAttributeValue) {
-						if(elementHasTagName(elementNode, "IMG")) {
-							// Image
-							const altAttributeValue: string = resolveAttributeAsString(elementNode, "alt");
-							!altAttributeValue
-								&& elementNode.setAttribute("alt", labelAttributeValue);
-						} else if(!isVoidElement(elementNode.tagName)) {
-							// Text
-							elementHasNoTextContent(elementNode)
-								&& elementNode.prepend(labelAttributeValue);
-						}
-					}
-				}
-			}
+			applyNormalizers(
+				normalizers,
+				node,
+				resolveLiveNode(node, liveByVirtual, inheritedLiveByVirtual),
+				inheritedLiveByVirtual,
+				document,
+				options.classifiers
+			);
 		}
 	);
 }
@@ -275,7 +150,7 @@ export function postProcessDOM(
 	isActionableElement: (elementNode: Element) => boolean
 ): void {
 	// Remove elements that became empty
-	if (options.filter?.emptyElements) {
+	if (options.filterEmptyElements) {
 		let hasRemovedElement: boolean;
 
 		do {
