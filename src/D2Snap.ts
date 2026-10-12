@@ -1,4 +1,4 @@
-import { transformWithTextRank } from "./TextRank.js";
+import { rankSentences } from "./TextRank.js";
 import { Turndown } from "./Turndown.js";
 import {
 	type DeepPartial,
@@ -7,6 +7,7 @@ import {
 	type DOM,
 	type ElementClassifierFn,
 	type ElementWithDepth,
+	type SentenceRankerFn,
 	type TextNode
 } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
@@ -26,8 +27,9 @@ import { resolveDocument, resolveRoot, traverseDom } from "./util.dom.js";
 import { isInlineElement, isVoidElement } from "./util.html.js";
 import { postProcessDOM, postProcessHTML, preProcessDOM } from "./D2Snap.processing.js";
 import { deepMerge } from "./util.obj.js";
-import isActionableElement from "./classifier.isActionableElement.js";
-import isTextElement from "./classifier.isTextElement.js";
+import { transformWithRanking } from "./util.text.js";
+import isActionableElement from "./classifier.actionable-element.js";
+import isTextElement from "./classifier.text-formatting-element.js";
 
 
 const WHITESPACE_REGEX: RegExp = /^\s$/;
@@ -115,6 +117,7 @@ export function d2Snap(
 			labelAttributes: DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES,
 			svgToImg: true
 		},
+		sentenceRanker: rankSentences,
 		skip: {
 			markdown: false,
 			textRank: false
@@ -136,6 +139,10 @@ export function d2Snap(
 
 	const _isActionableElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.actionableElements;
 	const _isTextElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.textElements;
+	// Skipped ranking keeps the leading sentences.
+	const _sentenceRanker: SentenceRankerFn = optionsWithDefaults.skip?.textRank
+		? (sentences: string[]) => sentences
+		: optionsWithDefaults.sentenceRanker;
 
 	const turndown: Turndown = new Turndown([ _isActionableElement ]);
 
@@ -231,7 +238,7 @@ export function d2Snap(
 
 		textNode.textContent = [
 			leadingSpace,
-			transformWithTextRank(text, (1 - rT), !!optionsWithDefaults.skip?.textRank, true, optionsWithDefaults.textRankOptions),
+			transformWithRanking(text, (1 - rT), _sentenceRanker, true),
 			trailingSpace
 		].join("");
 	}

@@ -14,7 +14,6 @@ interface TextRankSentence {
 }
 
 
-const SENTENCE_DELIMITER_REGEX: RegExp = /(?<=\p{Sentence_Terminal})\s|\n|\r/gu;
 const TOKEN_PATTERN_REGEX: RegExp = /[\p{L}\p{N}]+/gu;
 
 
@@ -22,13 +21,6 @@ function initArray<T>(n: number): (T | null)[] {
 	return Array.from({ length: n }, () => null);
 }
 
-
-export function tokenizeSentences(text: string): string[] {
-	return text
-		.split(SENTENCE_DELIMITER_REGEX)
-        .map((rawSentence: string) => rawSentence.trim())
-        .filter((sentence: string) => !!sentence);
-}
 
 export function textRank(sentences: string[], options: Partial<TextRankOptions> = {}): TextRankSentence[] {
 	if (!sentences.length) return [];
@@ -194,33 +186,8 @@ export function textRank(sentences: string[], options: Partial<TextRankOptions> 
 		.sort((a: TextRankSentence, b: TextRankSentence) => b.score - a.score);
 }
 
-export function transformWithTextRank(
-	text: string,
-	ratio: number = 0.5,
-	simple: boolean = false,
-	noEmpty: boolean = false,	// TODO: Add to D2Snap API?
-	textRankOptions: Partial<TextRankOptions> = {}
-): string {
-	const sentences: string[] = tokenizeSentences(text);
-	const k: number = Math.min(
-		Math.max(
-			Math.ceil(sentences.length * ratio),
-			+noEmpty
-		),
-		sentences.length
-	);
-
-	if(sentences.length <= k) return sentences.join("\n");
-
-	if(simple) {
-		return sentences
-			.slice(0, k)
-			.join("\n");
-	}
-
-	return textRank(sentences, textRankOptions)
-        .slice(0, k)
-        .sort((a, b) => a.index - b.index)
-        .map(obj => obj.sentence)
-        .join("\n");
+// Sentences ordered by TextRank score (most important first).
+export function rankSentences(sentences: string[], options: Partial<TextRankOptions> = {}): string[] {
+	return textRank(sentences, options)
+		.map((obj: TextRankSentence) => obj.sentence);
 }

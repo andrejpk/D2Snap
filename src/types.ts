@@ -15,6 +15,7 @@ export type TextNode = Node & {
 export type DOM = Document | Element;
 
 export type ElementClassifierFn<T> = (element: T) => boolean;
+export type SentenceRankerFn = (sentences: string[]) => string[];
 
 
 export interface ElementWithDepth extends HTMLElement {
@@ -51,14 +52,13 @@ export interface D2SnapOptions {
         labelAttributes: string[];
         svgToImg: boolean;
     };
+    sentenceRanker: SentenceRankerFn;
     skip: {
         markdown: boolean;
         textRank: boolean;
     };
     minify: boolean;
     uniqueIDs: boolean;
-
-    textRankOptions?: TextRankOptions;
 };
 
 export interface D2SnapResult {
