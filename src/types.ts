@@ -16,13 +16,17 @@ export type DOM = Document | Element;
 
 export type ElementClassifierFn<T> = (element: T) => boolean;
 export type SentenceRankerFn = (sentences: string[]) => string[];
-export type NodeNormalizerFn<T extends Node = Node> = (
-    virtualTarget: T,
-    liveTarget: T,
-    document: Document,
-    classifiers: D2SnapOptions["classifiers"]
+export type NodeNormalizerFn = (
+    virtualNode: Node,
+    liveNode: Node,
+    context: NormalizerContext
 ) => void;
 
+
+export interface NormalizerContext {
+    classifiers: D2SnapOptions["classifiers"];
+    document: Document;
+}
 
 export interface ElementWithDepth extends HTMLElement {
     depth: number;
@@ -41,14 +45,13 @@ export interface TextRankOptions {
 
 export interface D2SnapOptions {
     attributeScores: AttributeScoring;
-    attributeScoring?: AttributeScoring;    // deprecated (alias)
     classifiers: {
         actionableElements: ElementClassifierFn<Element>;
         textElements: ElementClassifierFn<Element>;
     };
     debug: boolean;
     filterEmptyElements: boolean;
-    normalizers: NodeNormalizerFn | NodeNormalizerFn[];
+    normalizers: readonly NodeNormalizerFn[];
     sentenceRanker: SentenceRankerFn;
     skip: {
         markdown: boolean;
@@ -60,7 +63,7 @@ export interface D2SnapOptions {
 };
 
 export interface D2SnapResult {
-    dom: DOM,
+    dom: Element,
     innerHTML: string; html: string;
     outerHTML: string;
     meta: {

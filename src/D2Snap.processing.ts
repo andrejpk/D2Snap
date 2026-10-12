@@ -1,4 +1,4 @@
-import { type D2SnapOptions, type NodeNormalizerFn } from "./types.js";
+import { type D2SnapOptions, type NodeNormalizerFn, type NormalizerContext } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
 import { minifyDOM, resolveComposedChildNodes, resolveReplacingNodes, traverseDom } from "./util.dom.js";
 import { formatHTML, isVoidElement } from "./util.html.js";
@@ -15,12 +15,6 @@ interface HTMLPostProcessingOptions {
 	debug: boolean;
 }
 
-
-function toArray<T>(value: T | T[] | undefined): T[] {
-	if(value === undefined) return [];
-
-	return Array.isArray(value) ? value : [ value ];
-}
 
 function hasSlotChildNode(virtualNode: Node): boolean {
 	return !!(virtualNode as Element).querySelector?.(":scope > slot");
@@ -79,12 +73,11 @@ function resolveLiveNode(
 }
 
 function applyNormalizers(
-	normalizers: NodeNormalizerFn[],
+	normalizers: readonly NodeNormalizerFn[],
 	virtualNode: Node,
 	liveNode: Node,
 	inheritedLiveByVirtual: Map<Node, Node>,
-	document: Document,
-	classifiers: DOMPreProcessingOptions["classifiers"]
+	context: NormalizerContext
 ): void {
 	for(const normalizer of normalizers) {
 		const parentNode: Node | null = virtualNode.parentNode;
@@ -92,7 +85,7 @@ function applyNormalizers(
 		const nextSibling: Node | null = virtualNode.nextSibling;
 		const ownerElement: Element | null = (virtualNode as Attr).ownerElement ?? null;
 
-		normalizer(virtualNode, liveNode, document, classifiers);
+		normalizer(virtualNode, liveNode, context);
 
 		// Attachment check in constant time (no ancestor walk).
 		const isAttached: boolean = (virtualNode.nodeType === NodeType.ATTRIBUTE_NODE)
@@ -118,7 +111,11 @@ export function preProcessDOM(
 	document: Document,
 	options: DOMPreProcessingOptions
 ): void {
-	const normalizers: NodeNormalizerFn[] = toArray(options.normalizers);
+	const normalizers: readonly NodeNormalizerFn[] = options.normalizers;
+	const context: NormalizerContext = {
+		classifiers: options.classifiers,
+		document
+	};
 
 	// Lazy pairing during the traversal: a node's children are paired (and composed,
 	// in case of enabled shadow DOM) when the node is visited, before its normalizers run.
@@ -158,8 +155,7 @@ export function preProcessDOM(
 				node,
 				resolveLiveNode(node, liveByVirtual, inheritedLiveByVirtual),
 				inheritedLiveByVirtual,
-				document,
-				options.classifiers
+				context
 			);
 		}
 	);

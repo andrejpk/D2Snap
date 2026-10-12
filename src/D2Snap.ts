@@ -1,4 +1,3 @@
-import { rankSentences } from "./TextRank.js";
 import { Turndown } from "./Turndown.js";
 import {
 	type DeepPartial,
@@ -12,18 +11,19 @@ import {
 	type TextNode
 } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
-import { CONFIG } from "./var.CONFIG.js";
-import {
-	DEFAULT_ATTRIBUTE_SCORES
-} from "./var.DEFAULTS_ATTRIBUTE_SCORES.js";
+import { CONFIG } from "./config.js";
 import { resolveDocument, resolveRoot, traverseDom } from "./util.dom.js";
 import { isVoidElement } from "./util.html.js";
 import { postProcessDOM, postProcessHTML, preProcessDOM } from "./D2Snap.processing.js";
 import { deepMerge } from "./util.obj.js";
 import { transformWithRanking } from "./util.text.js";
-import isActionableElement from "./classifier.isActionableElement.js";
-import isTextElement from "./classifier.isTextElement.js";
-import { DEFAULT_NORMALIZERS, uniqueIDs } from "./normalizers.js";
+import {
+	DEFAULT_ATTRIBUTE_SCORES,
+	DEFAULT_CLASSIFIERS,
+	DEFAULT_NORMALIZERS,
+	DEFAULT_SENTENCE_RANKER
+} from "./constants.defaults.js";
+import { uniqueIDs } from "./options.normalizers.js";
 
 
 const WHITESPACE_REGEX: RegExp = /^\s$/;
@@ -94,30 +94,19 @@ export function d2Snap(
 	const originalSize = rootElement.innerHTML.length;
 	const optionsWithDefaults: D2SnapOptions = deepMerge<D2SnapOptions, DeepPartial<D2SnapOptions>>({
 		attributeScores: DEFAULT_ATTRIBUTE_SCORES,
-		classifiers: {
-			actionableElements: isActionableElement,
-			textElements: isTextElement
-		},
+		classifiers: DEFAULT_CLASSIFIERS,
 		debug: false,
 		filterEmptyElements: true,
 		minify: true,
 		normalizers: DEFAULT_NORMALIZERS,
-		shadowDOM: true,
-		sentenceRanker: rankSentences,
+		shadowDOM: false,
+		sentenceRanker: DEFAULT_SENTENCE_RANKER,
 		skip: {
 			markdown: false,
 			textRank: false
 		},
 		uniqueIDs: false
 	}, options);
-	// Aliases
-	optionsWithDefaults.attributeScores = {
- 		...DEFAULT_ATTRIBUTE_SCORES,
-
- 		...(options.attributeScoring ?? {}),
- 		...(options.attributeScores ?? {})
- 	};
-
 	const attributeScores: Map<string, number> = new Map(
 		Object.entries(optionsWithDefaults.attributeScores)
 			.map((entry: [ string, number ]) => [ entry[0].toLowerCase(), entry[1] ])
@@ -125,8 +114,8 @@ export function d2Snap(
 
 	const _isActionableElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.actionableElements;
 	const _isTextElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.textElements;
-	// Skipped ranking keeps the leading sentences.
-	const _sentenceRanker: SentenceRankerFn = optionsWithDefaults.skip?.textRank
+	// Skipped ranking keeps the leading sentences (a given sentence ranker wins).
+	const _sentenceRanker: SentenceRankerFn = (optionsWithDefaults.skip?.textRank && !options.sentenceRanker)
 		? (sentences: string[]) => sentences
 		: optionsWithDefaults.sentenceRanker;
 
@@ -273,7 +262,7 @@ export function d2Snap(
 	timings.clone = t() - t0;
 
 	// Unique IDs shortcut: last normalizer, unless explicitly placed.
-	const normalizers: NodeNormalizerFn[] = [ optionsWithDefaults.normalizers ].flat();
+	const normalizers: NodeNormalizerFn[] = [ ...optionsWithDefaults.normalizers ];
 	optionsWithDefaults.uniqueIDs
 		&& !normalizers.includes(uniqueIDs)
 		&& normalizers.push(uniqueIDs);

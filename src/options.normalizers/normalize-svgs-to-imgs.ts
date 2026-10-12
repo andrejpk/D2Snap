@@ -1,6 +1,20 @@
-import { NodeType } from "./enums.js";
-import { DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES } from "./var.DEFAULTS_ATTRIBUTES.js";
-import { SVG_LABEL_TAG_NAMES } from "./var.SEMANTICS_TAGS.js";
+import { type NormalizerContext } from "../types.js";
+import { forElements } from "./util.normalizers.js";
+import { SVG_LABEL_TAG_NAMES } from "../constants.semantics.js";
+
+
+export interface SvgToImgSettings {
+	labelAttributeNames: readonly string[];
+}
+
+
+export const DEFAULT_SETTINGS: Readonly<SvgToImgSettings> = Object.freeze({
+	labelAttributeNames: Object.freeze([
+		"aria-labelledby",
+		"aria-label",
+		"title"
+	])
+});
 
 
 function normalizeCaseInsensitive(str: string): string {
@@ -30,7 +44,7 @@ function resolveIdReferenceText(elementNode: Element, document: Document, id: st
 	return "";
 }
 
-function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: string[]): string | null {
+function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	for(const labelAttributeName of labelAttributeNames) {
 		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName);
 
@@ -52,9 +66,9 @@ function getElementLabelAttribute(elementNode: Element, document: Document, labe
 	return null;
 }
 
-function resolveLabel(liveElement: Element, document: Document): string | null {
+function resolveLabel(liveElement: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	// Live DOM is never mutated, so labels (and label references) remain resolvable.
-	return getElementLabelAttribute(liveElement, document, DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES);
+	return getElementLabelAttribute(liveElement, document, labelAttributeNames);
 }
 
 function createImage(document: Document, alt: string = ""): HTMLImageElement {
@@ -76,11 +90,14 @@ function replaceElementByImage(elementNode: Element, document: Document, alt: st
 
 
 // Meta-image to image.
-export default function(virtualNode: Node, liveNode: Node, document: Document): void {
-	if(virtualNode.nodeType !== NodeType.ELEMENT_NODE) return;
-
-	const virtualElement = virtualNode as Element;
-	const liveElement = liveNode as Element;
+export default forElements<SvgToImgSettings>((
+	virtualElement: Element,
+	liveElement: Element,
+	context: NormalizerContext,
+	settings: Partial<SvgToImgSettings> = {}
+): void => {
+	const document: Document = context.document;
+	const labelAttributeNames: readonly string[] = settings.labelAttributeNames ?? DEFAULT_SETTINGS.labelAttributeNames;
 
 	if(!elementHasTagName(virtualElement, "SVG")) return;
 
@@ -90,7 +107,7 @@ export default function(virtualNode: Node, liveNode: Node, document: Document): 
 		if(labelValue) break;
 	}
 
-	labelValue ||= resolveLabel(liveElement, document) ?? "";
+	labelValue ||= resolveLabel(liveElement, document, labelAttributeNames) ?? "";
 
 	replaceElementByImage(virtualElement, document, labelValue);
-}
+});

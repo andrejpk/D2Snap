@@ -1,7 +1,22 @@
-import { NodeType } from "./enums.js";
-import { isRawTextElement, isVoidElement } from "./util.html.js";
-import { DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES } from "./var.DEFAULTS_ATTRIBUTES.js";
-import { NON_RENDERED_TAG_NAMES } from "./var.SEMANTICS_TAGS.js";
+import { type NormalizerContext } from "../types.js";
+import { NodeType } from "../enums.js";
+import { isRawTextElement, isVoidElement } from "../util.html.js";
+import { forElements } from "./util.normalizers.js";
+import { NON_RENDERED_TAG_NAMES } from "../constants.semantics.js";
+
+
+export interface LabelAttributesToContentSettings {
+	labelAttributeNames: readonly string[];
+}
+
+
+export const DEFAULT_SETTINGS: Readonly<LabelAttributesToContentSettings> = Object.freeze({
+	labelAttributeNames: Object.freeze([
+		"aria-labelledby",
+		"aria-label",
+		"title"
+	])
+});
 
 
 function normalizeCaseInsensitive(str: string): string {
@@ -54,7 +69,7 @@ function resolveIdReferenceText(elementNode: Element, document: Document, id: st
 	return "";
 }
 
-function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: string[]): string | null {
+function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	for(const labelAttributeName of labelAttributeNames) {
 		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName);
 
@@ -76,21 +91,24 @@ function getElementLabelAttribute(elementNode: Element, document: Document, labe
 	return null;
 }
 
-function resolveLabel(liveElement: Element, document: Document): string | null {
+function resolveLabel(liveElement: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	// Live DOM is never mutated, so labels (and label references) remain resolvable.
-	return getElementLabelAttribute(liveElement, document, DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES);
+	return getElementLabelAttribute(liveElement, document, labelAttributeNames);
 }
 
 
 // Text-label attributes to text (non-void elements) or 'alt' (image elements).
-export default function(virtualNode: Node, liveNode: Node, document: Document): void {
-	if(virtualNode.nodeType !== NodeType.ELEMENT_NODE) return;
-
-	const virtualElement = virtualNode as Element;
-	const liveElement = liveNode as Element;
+export default forElements<LabelAttributesToContentSettings>((
+	virtualElement: Element,
+	liveElement: Element,
+	context: NormalizerContext,
+	settings: Partial<LabelAttributesToContentSettings> = {}
+): void => {
+	const document: Document = context.document;
+	const labelAttributeNames: readonly string[] = settings.labelAttributeNames ?? DEFAULT_SETTINGS.labelAttributeNames;
 
 	if(!isRawTextElement(virtualElement.tagName)) {
-		const labelAttributeValue: string | null = resolveLabel(liveElement, document);
+		const labelAttributeValue: string | null = resolveLabel(liveElement, document, labelAttributeNames);
 
 		if(labelAttributeValue) {
 			if(elementHasTagName(virtualElement, "IMG")) {
@@ -105,4 +123,4 @@ export default function(virtualNode: Node, liveNode: Node, document: Document): 
 			}
 		}
 	}
-}
+});

@@ -1,4 +1,4 @@
-import { INLINE_TAG_NAMES, RAW_TEXT_TAG_NAMES, VOID_TAG_NAMES } from "./var.SEMANTICS_TAGS.js";
+import { INLINE_TAG_NAMES, RAW_TEXT_TAG_NAMES, VOID_TAG_NAMES } from "./constants.semantics.js";
 
 
 type Token =

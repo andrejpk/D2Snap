@@ -1,10 +1,26 @@
-import { type D2SnapOptions } from "./types.js";
-import { NodeType } from "./enums.js";
-import { DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES, DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES } from "./var.DEFAULTS_ATTRIBUTES.js";
-import { NON_RENDERED_TAG_NAMES } from "./var.SEMANTICS_TAGS.js";
+import { type NormalizerContext } from "../types.js";
+import { NodeType } from "../enums.js";
+import { forElements } from "./util.normalizers.js";
+import { NON_RENDERED_TAG_NAMES } from "../constants.semantics.js";
+
+
+export interface IconClassesToImgSettings {
+	iconClassPrefixes: readonly string[];
+	labelAttributeNames: readonly string[];
+}
 
 
 const UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER: string = "-";
+
+
+export const DEFAULT_SETTINGS: Readonly<IconClassesToImgSettings> = Object.freeze({
+	iconClassPrefixes: Object.freeze([]),
+	labelAttributeNames: Object.freeze([
+		"aria-labelledby",
+		"aria-label",
+		"title"
+	])
+});
 
 
 function normalizeCaseInsensitive(str: string): string {
@@ -57,7 +73,7 @@ function resolveIdReferenceText(elementNode: Element, document: Document, id: st
 	return "";
 }
 
-function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: string[]): string | null {
+function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	for(const labelAttributeName of labelAttributeNames) {
 		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName);
 
@@ -79,9 +95,9 @@ function getElementLabelAttribute(elementNode: Element, document: Document, labe
 	return null;
 }
 
-function resolveLabel(liveElement: Element, document: Document): string | null {
+function resolveLabel(liveElement: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	// Live DOM is never mutated, so labels (and label references) remain resolvable.
-	return getElementLabelAttribute(liveElement, document, DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES);
+	return getElementLabelAttribute(liveElement, document, labelAttributeNames);
 }
 
 function createImage(document: Document, alt: string = ""): HTMLImageElement {
@@ -102,16 +118,15 @@ function replaceElementByImage(elementNode: Element, document: Document, alt: st
 }
 
 
-export default function(
-	virtualNode: Node,
-	liveNode: Node,
-	document: Document,
-	classifiers: D2SnapOptions["classifiers"]
-): void {
-	if(virtualNode.nodeType !== NodeType.ELEMENT_NODE) return;
-
-	const virtualElement = virtualNode as Element;
-	const liveElement = liveNode as Element;
+export default forElements<IconClassesToImgSettings>((
+	virtualElement: Element,
+	liveElement: Element,
+	context: NormalizerContext,
+	settings: Partial<IconClassesToImgSettings> = {}
+): void => {
+	const document: Document = context.document;
+	const labelAttributeNames: readonly string[] = settings.labelAttributeNames ?? DEFAULT_SETTINGS.labelAttributeNames;
+	const iconClassPrefixes: readonly string[] = settings.iconClassPrefixes ?? DEFAULT_SETTINGS.iconClassPrefixes;
 
 	if(elementHasTagName(virtualElement, "SVG")) return;
 
@@ -119,7 +134,7 @@ export default function(
 		let iconfontsInClass: string | null = null;
 
 		for(const className of [ ...virtualElement.classList ].reverse()) {
-			const iconfontName: string | undefined = DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES
+			const iconfontName: string | undefined = iconClassPrefixes
 				.find((name: string) => {
 					return className.startsWith(`${name}${UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER}`)
 				});
@@ -133,13 +148,13 @@ export default function(
 		}
 
 		if(iconfontsInClass) {
-			const alt: string = resolveLabel(liveElement, document) ?? iconfontsInClass;
+			const alt: string = resolveLabel(liveElement, document, labelAttributeNames) ?? iconfontsInClass;
 
-			if(!classifiers.actionableElements(liveElement)) {
+			if(!context.classifiers.actionableElements(liveElement)) {
 				replaceElementByImage(virtualElement, document, alt);
 			} else {
 				virtualElement.prepend(createImage(document, alt));
 			}
 		}
 	}
-}
+});
