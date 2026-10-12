@@ -4,16 +4,13 @@ import { forElements } from "./util.normalizers.js";
 import { NON_RENDERED_TAG_NAMES } from "../constants.semantics.js";
 
 
-export interface IconClassesToImgSettings {
+export interface NormalizeIconClassesToImgsSettings {
 	iconClassPrefixes: readonly string[];
 	labelAttributeNames: readonly string[];
 }
 
 
-const UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER: string = "-";
-
-
-export const DEFAULT_SETTINGS: Readonly<IconClassesToImgSettings> = Object.freeze({
+export const DEFAULT_SETTINGS: Readonly<NormalizeIconClassesToImgsSettings> = Object.freeze({
 	iconClassPrefixes: Object.freeze([]),
 	labelAttributeNames: Object.freeze([
 		"aria-labelledby",
@@ -21,6 +18,8 @@ export const DEFAULT_SETTINGS: Readonly<IconClassesToImgSettings> = Object.freez
 		"title"
 	])
 });
+
+const UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER: string = "-";
 
 
 function normalizeCaseInsensitive(str: string): string {
@@ -75,7 +74,8 @@ function resolveIdReferenceText(elementNode: Element, document: Document, id: st
 
 function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	for(const labelAttributeName of labelAttributeNames) {
-		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName);
+		// Lower case: attribute names are case-sensitive on non-HTML elements (e.g., SVG)
+		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName.toLowerCase());
 
 		if(!labelAttributeValue) continue;
 
@@ -118,11 +118,11 @@ function replaceElementByImage(elementNode: Element, document: Document, alt: st
 }
 
 
-export default forElements<IconClassesToImgSettings>((
+export default forElements<NormalizeIconClassesToImgsSettings>((
 	virtualElement: Element,
 	liveElement: Element,
 	context: NormalizerContext,
-	settings: Partial<IconClassesToImgSettings> = {}
+	settings: Partial<NormalizeIconClassesToImgsSettings> = {}
 ): void => {
 	const document: Document = context.document;
 	const labelAttributeNames: readonly string[] = settings.labelAttributeNames ?? DEFAULT_SETTINGS.labelAttributeNames;
@@ -130,7 +130,8 @@ export default forElements<IconClassesToImgSettings>((
 
 	if(elementHasTagName(virtualElement, "SVG")) return;
 
-	if(elementHasNoTextContent(virtualElement) && virtualElement.children.length === 0) {
+	// Constant-time check first: the text check walks the subtree (quadratic for deep chains)
+	if(virtualElement.children.length === 0 && elementHasNoTextContent(virtualElement)) {
 		let iconfontsInClass: string | null = null;
 
 		for(const className of [ ...virtualElement.classList ].reverse()) {

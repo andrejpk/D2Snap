@@ -2,23 +2,23 @@ import { type NormalizerContext } from "../types.js";
 import { forAttributes } from "./util.normalizers.js";
 
 
-export interface FilterDataURLsSettings {
+export interface FilterDataUrlsSettings {
 	attributeNames: readonly string[];
 	valuePattern: RegExp;
 }
 
 
-export const DEFAULT_SETTINGS: Readonly<FilterDataURLsSettings> = Object.freeze({
+export const DEFAULT_SETTINGS: Readonly<FilterDataUrlsSettings> = Object.freeze({
 	attributeNames: Object.freeze([ "src" ]),
 	valuePattern: /^data:/i
 });
 
 
-export default forAttributes<FilterDataURLsSettings>((
+export default forAttributes<FilterDataUrlsSettings>((
 	virtualAttr: Attr,
 	_liveAttr: Attr,
 	_context: NormalizerContext,
-	settings: Partial<FilterDataURLsSettings> = {}
+	settings: Partial<FilterDataUrlsSettings> = {}
 ): void => {
 	const attributeNames: readonly string[] = settings.attributeNames ?? DEFAULT_SETTINGS.attributeNames;
 	const valuePattern: RegExp = settings.valuePattern ?? DEFAULT_SETTINGS.valuePattern;

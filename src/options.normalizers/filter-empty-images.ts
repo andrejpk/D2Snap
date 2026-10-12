@@ -45,7 +45,8 @@ function resolveIdReferenceText(elementNode: Element, document: Document, id: st
 
 function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	for(const labelAttributeName of labelAttributeNames) {
-		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName);
+		// Lower case: attribute names are case-sensitive on non-HTML elements (e.g., SVG)
+		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName.toLowerCase());
 
 		if(!labelAttributeValue) continue;
 

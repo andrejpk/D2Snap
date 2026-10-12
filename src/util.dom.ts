@@ -1,6 +1,6 @@
 import type { DOM, TextNode } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
-import { isInlineElement, isRawTextElement } from "./util.html.js";
+import { isInlineElement, isWhitespacePreservingElement } from "./util.html.js";
 
 
 export async function ensureDOM(domOrStringOrBuffer: DOM | string | Buffer): Promise<DOM> {
@@ -57,6 +57,19 @@ export function resolveRoot(node: DOM): Element {
 	return (node as Document)?.body ?? (node as Document)?.documentElement ?? node;
 }
 
+// Serializes a root as covered by snapshots: the BODY contents for document roots
+// (HTML, BODY), the element itself otherwise (snapshots wrap it in a BODY).
+export function serializeSnapshotRoot(rootElement: Element): string {
+	switch(rootElement.localName.toLowerCase()) {
+		case "html":
+			return (rootElement.querySelector("body") ?? rootElement).innerHTML;
+		case "body":
+			return rootElement.innerHTML;
+		default:
+			return rootElement.outerHTML;
+	}
+}
+
 function resolveSlottedNodes(node: Node): Node[] {
 	// Slots only distribute within shadow trees.
 	if(node.nodeName !== "SLOT" || !(node.getRootNode() as ShadowRoot).host) return [ node ];
@@ -102,7 +115,7 @@ export function resolveReplacingNodes(
 
 // Pre-order DFS: parent before child.
 // Children are read after the callback, so the latest DOM is traversed.
-// Attributes are visited (as nodes) after their element, before its children.
+// Attributes are visited (as nodes) before their element (as in normalization order).
 export function traverseDom<T>(
 	root: Element,
 	filter: number = NodeFilter.SHOW_ALL,
@@ -143,10 +156,6 @@ export function traverseDom<T>(
             || ((node.nodeType === NodeType.TEXT_NODE) && showText)
             || ((node.nodeType === NodeType.COMMENT_NODE) && showComment);
 
-		const replacingNodes: Node[] | undefined = passes
-			? (cb(node as T) as Node[] | undefined)
-			: undefined;
-
 		if(showAttribute && (node.nodeType === NodeType.ELEMENT_NODE)) {
 			for(const attr of [ ...(node as Element).attributes ]) {
 				if(!isInRoot(node)) break;
@@ -156,6 +165,10 @@ export function traverseDom<T>(
 				cb(attr as T);
 			}
 		}
+
+		const replacingNodes: Node[] | undefined = (passes && isInRoot(node))
+			? (cb(node as T) as Node[] | undefined)
+			: undefined;
 
 		// Attached: continue with the latest children.
 		// Detached: continue with the returned replacement nodes, else with nodes that replace the original.
@@ -170,6 +183,15 @@ export function traverseDom<T>(
 	}
 }
 
+function isWithinWhitespacePreservingElement(element: Element, domRoot: Element): boolean {
+	for(let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+		if(isWhitespacePreservingElement(ancestor.tagName)) return true;
+		if(ancestor === domRoot) break;
+	}
+
+	return false;
+}
+
 export function minifyDOM(domRoot: Element): void {
 	traverseDom<HTMLElement>(
 		domRoot,
@@ -178,7 +200,7 @@ export function minifyDOM(domRoot: Element): void {
 			const parent = textNode.parentElement;
 			if(!parent) return;
 
-			if(isRawTextElement(parent.tagName.toLowerCase())) return;
+			if(isWithinWhitespacePreservingElement(parent, domRoot)) return;
 
 			const value = textNode.nodeValue ?? "";
 			if(!value) return;
@@ -194,7 +216,7 @@ export function minifyDOM(domRoot: Element): void {
 			const parent = textNode.parentElement;
 			if(!parent) return;
 
-			if(isRawTextElement(parent.tagName.toLowerCase())) return;
+			if(isWithinWhitespacePreservingElement(parent, domRoot)) return;
 
 			let value = textNode.nodeValue ?? "";
 			if(!value) {

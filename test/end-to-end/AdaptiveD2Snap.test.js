@@ -38,9 +38,9 @@ await test("Take adaptive DOM snapshot (max 5K tokens)", async () => {
         "Invalid adaptive DOM snapshot size (min 1.5K; close-to-cap paradigm)"
     );
 
-    assertIn(
-        flattenDOMSnapshot("<a href=\"/about\" data-uid=\"641\">About us</a>"),
-        flattenDOMSnapshot(snapshot.html),
+    // Unique ID value depends on the number of preceding (unfiltered) elements
+    assertTrue(
+        /<a href="\/about" data-uid="\d+">About us<\/a>/.test(flattenDOMSnapshot(snapshot.html)),
         "Interactive element not preserved"
     );
 });

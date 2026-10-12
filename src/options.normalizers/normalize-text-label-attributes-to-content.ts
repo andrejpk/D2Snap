@@ -5,12 +5,12 @@ import { forElements } from "./util.normalizers.js";
 import { NON_RENDERED_TAG_NAMES } from "../constants.semantics.js";
 
 
-export interface LabelAttributesToContentSettings {
+export interface NormalizeTextLabelAttributesToContentSettings {
 	labelAttributeNames: readonly string[];
 }
 
 
-export const DEFAULT_SETTINGS: Readonly<LabelAttributesToContentSettings> = Object.freeze({
+export const DEFAULT_SETTINGS: Readonly<NormalizeTextLabelAttributesToContentSettings> = Object.freeze({
 	labelAttributeNames: Object.freeze([
 		"aria-labelledby",
 		"aria-label",
@@ -71,7 +71,8 @@ function resolveIdReferenceText(elementNode: Element, document: Document, id: st
 
 function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	for(const labelAttributeName of labelAttributeNames) {
-		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName);
+		// Lower case: attribute names are case-sensitive on non-HTML elements (e.g., SVG)
+		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName.toLowerCase());
 
 		if(!labelAttributeValue) continue;
 
@@ -98,11 +99,11 @@ function resolveLabel(liveElement: Element, document: Document, labelAttributeNa
 
 
 // Text-label attributes to text (non-void elements) or 'alt' (image elements).
-export default forElements<LabelAttributesToContentSettings>((
+export default forElements<NormalizeTextLabelAttributesToContentSettings>((
 	virtualElement: Element,
 	liveElement: Element,
 	context: NormalizerContext,
-	settings: Partial<LabelAttributesToContentSettings> = {}
+	settings: Partial<NormalizeTextLabelAttributesToContentSettings> = {}
 ): void => {
 	const document: Document = context.document;
 	const labelAttributeNames: readonly string[] = settings.labelAttributeNames ?? DEFAULT_SETTINGS.labelAttributeNames;

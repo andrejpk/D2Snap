@@ -56,6 +56,11 @@ export const RAW_TEXT_TAG_NAMES: Set<string> = new Set([
 	"TITLE",
 ]);
 
+// Whitespace is content (may contain markup, unlike raw text elements).
+export const PREFORMATTED_TAG_NAMES: Set<string> = new Set([
+	"PRE"
+]);
+
 export const NON_RENDERED_TAG_NAMES: Set<string> = new Set([
 	"SCRIPT",
 	"STYLE",

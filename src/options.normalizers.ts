@@ -1,32 +1,32 @@
 import filterAttributes from "./options.normalizers/filter-attributes.js";
 import filterComments from "./options.normalizers/filter-comments.js";
-import filterDataURLs from "./options.normalizers/filter-data-urls.js";
-import filterElements from "./options.normalizers/filter-noise-elements.js";
+import filterDataUrls from "./options.normalizers/filter-data-urls.js";
+import filterNoiseElements from "./options.normalizers/filter-noise-elements.js";
 import filterEmptyImages from "./options.normalizers/filter-empty-images.js";
-import iconClassesToImg from "./options.normalizers/normalize-icon-classes-to-imgs.js";
-import labelAttributesToContent from "./options.normalizers/normalize-text-label-attributes-to-content.js";
-import svgToImg from "./options.normalizers/normalize-svgs-to-imgs.js";
-import uniqueIDs from "./options.normalizers/asign-unique-ids.js";
+import normalizeIconClassesToImgs from "./options.normalizers/normalize-icon-classes-to-imgs.js";
+import normalizeTextLabelAttributesToContent from "./options.normalizers/normalize-text-label-attributes-to-content.js";
+import normalizeSvgsToImgs from "./options.normalizers/normalize-svgs-to-imgs.js";
+import assignUniqueIds from "./options.normalizers/assign-unique-ids.js";
 
 
 export {
 	filterAttributes,
 	filterComments,
-	filterDataURLs,
-	filterElements,
+	filterDataUrls,
+	filterNoiseElements,
 	filterEmptyImages,
-	iconClassesToImg,
-	labelAttributesToContent,
-	svgToImg,
-	uniqueIDs
+	normalizeIconClassesToImgs,
+	normalizeTextLabelAttributesToContent,
+	normalizeSvgsToImgs,
+	assignUniqueIds
 };
 
 export { type FilterAttributesSettings } from "./options.normalizers/filter-attributes.js";
 export { type FilterCommentsSettings } from "./options.normalizers/filter-comments.js";
-export { type FilterDataURLsSettings } from "./options.normalizers/filter-data-urls.js";
-export { type FilterElementsSettings } from "./options.normalizers/filter-noise-elements.js";
+export { type FilterDataUrlsSettings } from "./options.normalizers/filter-data-urls.js";
+export { type FilterNoiseElementsSettings } from "./options.normalizers/filter-noise-elements.js";
 export { type FilterEmptyImagesSettings } from "./options.normalizers/filter-empty-images.js";
-export { type IconClassesToImgSettings } from "./options.normalizers/normalize-icon-classes-to-imgs.js";
-export { type LabelAttributesToContentSettings } from "./options.normalizers/normalize-text-label-attributes-to-content.js";
-export { type SvgToImgSettings } from "./options.normalizers/normalize-svgs-to-imgs.js";
-export { type UniqueIDsSettings } from "./options.normalizers/asign-unique-ids.js";
+export { type NormalizeIconClassesToImgsSettings } from "./options.normalizers/normalize-icon-classes-to-imgs.js";
+export { type NormalizeTextLabelAttributesToContentSettings } from "./options.normalizers/normalize-text-label-attributes-to-content.js";
+export { type NormalizeSvgsToImgsSettings } from "./options.normalizers/normalize-svgs-to-imgs.js";
+export { type AssignUniqueIdsSettings } from "./options.normalizers/assign-unique-ids.js";

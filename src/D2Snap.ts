@@ -7,23 +7,20 @@ import {
 	type ElementClassifierFn,
 	type NodeNormalizerFn,
 	type ElementWithDepth,
+	type NormalizeDOMOptions,
+	type NormalizeDOMResult,
 	type SentenceRankerFn,
 	type TextNode
 } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
 import { CONFIG } from "./config.js";
-import { resolveDocument, resolveRoot, traverseDom } from "./util.dom.js";
+import { resolveDocument, resolveRoot, serializeSnapshotRoot, traverseDom } from "./util.dom.js";
 import { isVoidElement } from "./util.html.js";
-import { postProcessDOM, postProcessHTML, preProcessDOM } from "./D2Snap.processing.js";
+import { postProcessDOM, postProcessHTML, preProcessDOM } from "./processing.js";
 import { deepMerge } from "./util.obj.js";
-import { transformWithRanking } from "./util.text.js";
-import {
-	DEFAULT_ATTRIBUTE_SCORES,
-	DEFAULT_CLASSIFIERS,
-	DEFAULT_NORMALIZERS,
-	DEFAULT_SENTENCE_RANKER
-} from "./constants.defaults.js";
-import { uniqueIDs } from "./options.normalizers.js";
+import { getByteLength, transformWithRanking } from "./util.text.js";
+import * as defaults from "./constants.defaults.js";
+import { assignUniqueIds } from "./options.normalizers.js";
 
 
 const WHITESPACE_REGEX: RegExp = /^\s$/;
@@ -52,7 +49,7 @@ function defineNonEnumerableProperty(obj: object, prop: string, value: unknown) 
 
 
 export function getAttributeScore(attrName: string, attributeScores: Map<string, number> = new Map(
-	Object.entries(DEFAULT_ATTRIBUTE_SCORES)
+	Object.entries(defaults.ATTRIBUTE_SCORES)
 		.map((entry: [ string, number ]) => [ entry[0].toLowerCase(), entry[1] ])
 )) {
 	let normalizedName: string = attrName.toLowerCase();
@@ -78,6 +75,88 @@ export function getAttributeScore(attrName: string, attributeScores: Map<string,
 	return attributeScore;
 }
 
+// Clones the DOM into an inert document (virtual DOM), paired with its live equivalent.
+function createVirtualDOM(document: Document, rootElement: Element): {
+	inertDoc: Document;
+	virtualDOM: Element;
+	liveDOM: Element;
+} {
+	const inertDoc: Document = document.implementation.createHTMLDocument("");
+	// Shadow DOM content is composed into the clone during pre-processing (if enabled).
+	const rootElementClone: DOM = inertDoc.importNode(rootElement, true);
+	switch(rootElement.localName.toLowerCase()) {
+		case "html":
+			inertDoc.replaceChild(rootElementClone, inertDoc.documentElement);
+			break;
+		case "body":
+			inertDoc.documentElement.replaceChild(rootElementClone, inertDoc.body);
+			break;
+		default:
+			inertDoc.body.appendChild(rootElementClone);
+	}
+	// Wrap local DOM input (e.g., SECTIOn snippet) in BODY to allow destructive mutation
+	// of input DOM root.
+	const virtualDOM: Element = (rootElement.nodeType === NodeType.DOCUMENT_NODE)
+		? inertDoc.documentElement
+		: inertDoc.body;
+	// Live equivalent of the virtual DOM root (or of its BODY-wrapped child).
+	const liveDOM: Element = (rootElement.localName.toLowerCase() === "html")
+		? (rootElement.querySelector("body") ?? rootElement)
+		: rootElement;
+
+	return { inertDoc, virtualDOM, liveDOM };
+}
+
+// Unique IDs shortcut: last normalizer, unless explicitly placed (never mutates given lists).
+function resolveNormalizers(options: Pick<D2SnapOptions, "normalizers" | "uniqueIDs">): NodeNormalizerFn[] {
+	const normalizers: NodeNormalizerFn[] = [ ...options.normalizers ];
+
+	options.uniqueIDs
+		&& !normalizers.includes(assignUniqueIds)
+		&& normalizers.push(assignUniqueIds);
+
+	return normalizers;
+}
+
+// Normalizes a DOM without downsampling (pre-processing only). The live DOM is not
+// mutated, except by normalizers that explicitly write to it (unique IDs).
+export function normalizeDOM(
+	dom: DOM,
+	options: DeepPartial<NormalizeDOMOptions> = {}
+): NormalizeDOMResult {
+	const document = resolveDocument(dom);
+	if(!document) throw new ReferenceError("Could not resolve a valid document object from DOM");
+
+	const rootElement: Element = resolveRoot(dom);
+	const optionsWithDefaults: NormalizeDOMOptions = deepMerge<NormalizeDOMOptions, DeepPartial<NormalizeDOMOptions>>({
+		classifiers: defaults.CLASSIFIERS,
+		normalizers: defaults.NORMALIZERS,
+		shadowDOM: false,
+		uniqueIDs: false
+	}, options);
+
+	const { inertDoc, virtualDOM, liveDOM } = createVirtualDOM(document, rootElement);
+
+	preProcessDOM(virtualDOM, liveDOM, inertDoc, {
+		classifiers: optionsWithDefaults.classifiers,
+		normalizers: resolveNormalizers(optionsWithDefaults),
+		shadowDOM: optionsWithDefaults.shadowDOM
+	});
+
+	return {
+		dom: virtualDOM,
+		get html() {
+			return virtualDOM.innerHTML;
+		},
+		get innerHTML() {
+			return virtualDOM.innerHTML;
+		},
+		get outerHTML() {
+			return virtualDOM.outerHTML;
+		}
+	};
+}
+
 export function d2Snap(
 	dom: DOM,
 	rE: number, rA: number, rT: number,
@@ -91,16 +170,17 @@ export function d2Snap(
 	if(!document) throw new ReferenceError("Could not resolve a valid document object from DOM");
 
 	const rootElement: Element = resolveRoot(dom)
-	const originalSize = rootElement.innerHTML.length;
+	// Same root as the snapshot (UTF-8 bytes)
+	const originalSize: number = getByteLength(serializeSnapshotRoot(rootElement));
 	const optionsWithDefaults: D2SnapOptions = deepMerge<D2SnapOptions, DeepPartial<D2SnapOptions>>({
-		attributeScores: DEFAULT_ATTRIBUTE_SCORES,
-		classifiers: DEFAULT_CLASSIFIERS,
+		attributeScores: defaults.ATTRIBUTE_SCORES,
+		classifiers: defaults.CLASSIFIERS,
 		debug: false,
 		filterEmptyElements: true,
 		minify: true,
-		normalizers: DEFAULT_NORMALIZERS,
+		normalizers: defaults.NORMALIZERS,
 		shadowDOM: false,
-		sentenceRanker: DEFAULT_SENTENCE_RANKER,
+		sentenceRanker: defaults.SENTENCE_RANKER,
 		skip: {
 			markdown: false,
 			textRank: false
@@ -114,8 +194,11 @@ export function d2Snap(
 
 	const _isActionableElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.actionableElements;
 	const _isTextElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.textElements;
-	// Skipped ranking keeps the leading sentences (a given sentence ranker wins).
-	const _sentenceRanker: SentenceRankerFn = (optionsWithDefaults.skip?.textRank && !options.sentenceRanker)
+	// No ranking keeps the leading sentences: null ranker, or skipped ranking (a given sentence ranker wins).
+	const _sentenceRanker: SentenceRankerFn = (
+		(optionsWithDefaults.sentenceRanker === null)
+		|| (optionsWithDefaults.skip?.textRank && !options.sentenceRanker)
+	)
 		? (sentences: string[]) => sentences
 		: optionsWithDefaults.sentenceRanker;
 
@@ -237,41 +320,14 @@ export function d2Snap(
 
 	// Clone
 	t0 = t();
-	const inertDoc: Document = document.implementation.createHTMLDocument("");
-	// Shadow DOM content is composed into the clone during pre-processing (if enabled).
-	const rootElementClone: DOM = inertDoc.importNode(rootElement, true);
-	switch(rootElement.localName.toLowerCase()) {
-		case "html":
-			inertDoc.replaceChild(rootElementClone, inertDoc.documentElement);
-			break;
-		case "body":
-			inertDoc.documentElement.replaceChild(rootElementClone, inertDoc.body);
-			break;
-		default:
-			inertDoc.body.appendChild(rootElementClone);
-	}
-	// Wrap local DOM input (e.g., SECTIOn snippet) in BODY to allow destructive mutation
-	// of input DOM root.  
-	const virtualDOM = (rootElement.nodeType === NodeType.DOCUMENT_NODE)
-		? inertDoc.documentElement
-		: inertDoc.body;
-	// Live equivalent of the virtual DOM root (or of its BODY-wrapped child).
-	const liveDOM: Element = (rootElement.localName.toLowerCase() === "html")
-		? (rootElement.querySelector("body") ?? rootElement)
-		: rootElement;
+	const { inertDoc, virtualDOM, liveDOM } = createVirtualDOM(document, rootElement);
 	timings.clone = t() - t0;
-
-	// Unique IDs shortcut: last normalizer, unless explicitly placed.
-	const normalizers: NodeNormalizerFn[] = [ ...optionsWithDefaults.normalizers ];
-	optionsWithDefaults.uniqueIDs
-		&& !normalizers.includes(uniqueIDs)
-		&& normalizers.push(uniqueIDs);
 
 	// Pre-proces
 	t0 = t();
 	preProcessDOM(virtualDOM, liveDOM, inertDoc, {
 		classifiers: optionsWithDefaults.classifiers,
-		normalizers,
+		normalizers: resolveNormalizers(optionsWithDefaults),
 		shadowDOM: optionsWithDefaults.shadowDOM
 	});
 	timings.preProcessing = t() - t0;
@@ -389,10 +445,10 @@ export function d2Snap(
 		meta: {
 			originalSize,
 			get snapshotSize() {
-				return getHTML("innerHTML").length;
+				return getByteLength(getHTML("innerHTML"));
 			},
 			get sizeRatio() {
-				return getHTML("innerHTML").length / originalSize
+				return getByteLength(getHTML("innerHTML")) / originalSize;
 			},
 			get tokenEstimate() {
 				return Math.round(getHTML("innerHTML").length / 4)

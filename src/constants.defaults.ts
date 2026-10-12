@@ -1,40 +1,45 @@
-import { CONFIG } from "./config.js";
 import {
 	type D2SnapOptions,
-	type NodeNormalizerFn,
-	type SentenceRankerFn
+	type NodeNormalizerFn
 } from "./types.js";
 import isActionableElement from "./options.classifiers/is-actionable-element.js";
 import isTextElement from "./options.classifiers/is-text-element.js";
 import {
 	filterAttributes,
 	filterComments,
-	filterDataURLs,
-	filterElements,
+	filterDataUrls,
+	filterNoiseElements,
 	filterEmptyImages,
-	iconClassesToImg,
-	labelAttributesToContent,
-	svgToImg
+	normalizeIconClassesToImgs,
+	normalizeTextLabelAttributesToContent,
+	normalizeSvgsToImgs
 } from "./options.normalizers.js";
-import { rankSentences } from "./TextRank.js";
+import textRank from "./options.sentenceRankers/text-rank.js";
 import { DEFAULT_SETTINGS as IS_ACTIONABLE_ELEMENT_SETTINGS } from "./options.classifiers/is-actionable-element.js";
 import { DEFAULT_SETTINGS as IS_TEXT_ELEMENT_SETTINGS } from "./options.classifiers/is-text-element.js";
 import { DEFAULT_SETTINGS as FILTER_ATTRIBUTES_SETTINGS } from "./options.normalizers/filter-attributes.js";
 import { DEFAULT_SETTINGS as FILTER_COMMENTS_SETTINGS } from "./options.normalizers/filter-comments.js";
 import { DEFAULT_SETTINGS as FILTER_DATA_URLS_SETTINGS } from "./options.normalizers/filter-data-urls.js";
-import { DEFAULT_SETTINGS as FILTER_ELEMENTS_SETTINGS } from "./options.normalizers/filter-noise-elements.js";
+import { DEFAULT_SETTINGS as FILTER_NOISE_ELEMENTS_SETTINGS } from "./options.normalizers/filter-noise-elements.js";
 import { DEFAULT_SETTINGS as FILTER_EMPTY_IMAGES_SETTINGS } from "./options.normalizers/filter-empty-images.js";
-import { DEFAULT_SETTINGS as ICON_CLASSES_TO_IMG_SETTINGS } from "./options.normalizers/normalize-icon-classes-to-imgs.js";
-import { DEFAULT_SETTINGS as LABEL_ATTRIBUTES_TO_CONTENT_SETTINGS } from "./options.normalizers/normalize-text-label-attributes-to-content.js";
-import { DEFAULT_SETTINGS as SVG_TO_IMG_SETTINGS } from "./options.normalizers/normalize-svgs-to-imgs.js";
-import { DEFAULT_SETTINGS as UNIQUE_IDS_SETTINGS } from "./options.normalizers/asign-unique-ids.js";
+import { DEFAULT_SETTINGS as NORMALIZE_ICON_CLASSES_TO_IMGS_SETTINGS } from "./options.normalizers/normalize-icon-classes-to-imgs.js";
+import { DEFAULT_SETTINGS as NORMALIZE_TEXT_LABEL_ATTRIBUTES_TO_CONTENT_SETTINGS } from "./options.normalizers/normalize-text-label-attributes-to-content.js";
+import { DEFAULT_SETTINGS as NORMALIZE_SVGS_TO_IMGS_SETTINGS } from "./options.normalizers/normalize-svgs-to-imgs.js";
+import { DEFAULT_SETTINGS as ASSIGN_UNIQUE_IDS_SETTINGS } from "./options.normalizers/assign-unique-ids.js";
+import { DEFAULT_SETTINGS as TEXT_RANK_SETTINGS } from "./options.sentenceRankers/text-rank.js";
 
+
+// Default callbacks (individually, incl. opt-in ones; reusable in custom subsets, supersets, or orders).
+
+export * as classifiers from "./options.classifiers.js";
+export * as normalizers from "./options.normalizers.js";
+export * as sentenceRankers from "./options.sentenceRankers.js";
 
 // Defaults as passed to the respective options (reusable in custom subsets, supersets, or orders).
 
-export const DEFAULT_ATTRIBUTE_SCORES = Object.freeze({
+export const ATTRIBUTE_SCORES = Object.freeze({
 	// Maximum preservance:
-	[CONFIG.uniqueAttributeName]: 1.00,
+	"data-uid": 1.00,
 	"role": 1.00,
 	"alt": 1.00,
 
@@ -112,41 +117,46 @@ export const DEFAULT_ATTRIBUTE_SCORES = Object.freeze({
 	"*": 0.00
 });
 
-export const DEFAULT_CLASSIFIERS: Readonly<D2SnapOptions["classifiers"]> = Object.freeze({
+export const CLASSIFIERS: Readonly<D2SnapOptions["classifiers"]> = Object.freeze({
 	actionableElements: isActionableElement,
 	textElements: isTextElement
 });
 
 // STRICT ORDER MATTERS
-// Opt-in (not default): uniqueIDs
-export const DEFAULT_NORMALIZERS: readonly NodeNormalizerFn[] = Object.freeze([
+// Opt-in (not default): assignUniqueIds
+export const NORMALIZERS: readonly NodeNormalizerFn[] = Object.freeze([
 	filterComments,
-	filterElements,
+	filterNoiseElements,
 	filterEmptyImages,
-	svgToImg,
-	iconClassesToImg,
-	labelAttributesToContent,
+	normalizeSvgsToImgs,
+	normalizeIconClassesToImgs,
+	normalizeTextLabelAttributesToContent,
 	filterAttributes,
-	filterDataURLs
+	filterDataUrls
 ]);
 
-export const DEFAULT_SENTENCE_RANKER: SentenceRankerFn = rankSentences;
+// Accepts its settings as second argument (wrap to configure).
+export const SENTENCE_RANKER: typeof textRank = textRank;
 
 // Default side parameters per callback (reusable when wrapping a callback with own settings).
 
-export const DEFAULT_CLASSIFIER_SETTINGS = Object.freeze({
+export const CLASSIFIER_SETTINGS = Object.freeze({
 	isActionableElement: IS_ACTIONABLE_ELEMENT_SETTINGS,
 	isTextElement: IS_TEXT_ELEMENT_SETTINGS
 });
 
-export const DEFAULT_NORMALIZER_SETTINGS = Object.freeze({
+export const NORMALIZER_SETTINGS = Object.freeze({
 	filterAttributes: FILTER_ATTRIBUTES_SETTINGS,
 	filterComments: FILTER_COMMENTS_SETTINGS,
-	filterDataURLs: FILTER_DATA_URLS_SETTINGS,
-	filterElements: FILTER_ELEMENTS_SETTINGS,
+	filterDataUrls: FILTER_DATA_URLS_SETTINGS,
+	filterNoiseElements: FILTER_NOISE_ELEMENTS_SETTINGS,
 	filterEmptyImages: FILTER_EMPTY_IMAGES_SETTINGS,
-	iconClassesToImg: ICON_CLASSES_TO_IMG_SETTINGS,
-	labelAttributesToContent: LABEL_ATTRIBUTES_TO_CONTENT_SETTINGS,
-	svgToImg: SVG_TO_IMG_SETTINGS,
-	uniqueIDs: UNIQUE_IDS_SETTINGS
+	normalizeIconClassesToImgs: NORMALIZE_ICON_CLASSES_TO_IMGS_SETTINGS,
+	normalizeTextLabelAttributesToContent: NORMALIZE_TEXT_LABEL_ATTRIBUTES_TO_CONTENT_SETTINGS,
+	normalizeSvgsToImgs: NORMALIZE_SVGS_TO_IMGS_SETTINGS,
+	assignUniqueIds: ASSIGN_UNIQUE_IDS_SETTINGS
+});
+
+export const SENTENCE_RANKER_SETTINGS = Object.freeze({
+	textRank: TEXT_RANK_SETTINGS
 });

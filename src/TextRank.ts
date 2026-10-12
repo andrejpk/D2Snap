@@ -3,7 +3,7 @@
 // ------------------------------------------
 
 
-import { type TextRankOptions } from "./types.js";
+import { type TextRankSettings } from "./types.js";
 import { deepMerge } from "./util.obj.js";
 
 
@@ -16,21 +16,23 @@ interface TextRankSentence {
 
 const TOKEN_PATTERN_REGEX: RegExp = /[\p{L}\p{N}]+/gu;
 
+export const DEFAULT_SETTINGS: Readonly<TextRankSettings> = Object.freeze({
+	damping: 0.75,
+	maxIterations: 20,
+	minSimilarity: 0.1,
+	tolerance: 1e-4
+});
+
 
 function initArray<T>(n: number): (T | null)[] {
 	return Array.from({ length: n }, () => null);
 }
 
 
-export function textRank(sentences: string[], options: Partial<TextRankOptions> = {}): TextRankSentence[] {
+export function textRank(sentences: string[], options: Partial<TextRankSettings> = {}): TextRankSentence[] {
 	if (!sentences.length) return [];
 
-	const optionsWithDefaults: TextRankOptions = deepMerge({
-		damping: 0.75,
-		maxIterations: 20,
-		minSimilarity: 0.1,
-		tolerance: 1e-4
-	}, options);
+	const optionsWithDefaults: TextRankSettings = deepMerge({ ...DEFAULT_SETTINGS }, options);
 
 	const sentenceCount: number = sentences.length;
 
@@ -187,7 +189,7 @@ export function textRank(sentences: string[], options: Partial<TextRankOptions> 
 }
 
 // Sentences ordered by TextRank score (most important first).
-export function rankSentences(sentences: string[], options: Partial<TextRankOptions> = {}): string[] {
+export function rankSentences(sentences: string[], options: Partial<TextRankSettings> = {}): string[] {
 	return textRank(sentences, options)
 		.map((obj: TextRankSentence) => obj.sentence);
 }

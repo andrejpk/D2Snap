@@ -5,11 +5,11 @@ import { readTestFile, writeActual, readExpected, flattenDOMSnapshot } from "../
 import { d2Snap } from "../../dist.lib/api.js";
 
 
-const PIZZA_HTML = await readTestFile("pizza/pizza");
+const HAMBURGER_HTML = await readTestFile("hamburger/hamburger.options.uniqueIDs");
 
 
 await test("Take DOM snapshot (options.uniqueIDs)", async () => {
-    const dom = new JSDOM(PIZZA_HTML).window;
+    const dom = new JSDOM(HAMBURGER_HTML).window;
     const domRoot = dom.document.body;
 
     const snapshotFalse = await d2Snap(domRoot, 0.75, 0.75, 0.75, {
@@ -17,8 +17,8 @@ await test("Take DOM snapshot (options.uniqueIDs)", async () => {
         uniqueIDs: false
     });
 
-    await writeActual("pizza/pizza.options.uniqueIDs.false", snapshotFalse.html);
-    const expectedFalse = await readExpected("pizza/pizza.options.uniqueIDs.false");
+    await writeActual("hamburger/hamburger.options.uniqueIDs.false", snapshotFalse.html);
+    const expectedFalse = await readExpected("hamburger/hamburger.options.uniqueIDs.false");
 
     assertEqual(
         flattenDOMSnapshot(snapshotFalse.html),
@@ -37,8 +37,8 @@ await test("Take DOM snapshot (options.uniqueIDs)", async () => {
         uniqueIDs: true
     });
 
-    await writeActual("pizza/pizza.options.uniqueIDs.true", snapshotTrue.html);
-    const expectedTrue = await readExpected("pizza/pizza.options.uniqueIDs.true");
+    await writeActual("hamburger/hamburger.options.uniqueIDs.true", snapshotTrue.html);
+    const expectedTrue = await readExpected("hamburger/hamburger.options.uniqueIDs.true");
 
     assertEqual(
         flattenDOMSnapshot(snapshotTrue.html),
@@ -50,5 +50,17 @@ await test("Take DOM snapshot (options.uniqueIDs)", async () => {
         " data-uid=",
         domRoot.outerHTML,
         "Invalid DOM snapshot (uniqueIDs = true)"
+    );
+
+    // Stable across snapshots (existing IDs reused)
+    const snapshotTrueAgain = await d2Snap(domRoot, 0.75, 0.75, 0.75, {
+        debug: true,
+        uniqueIDs: true
+    });
+
+    assertEqual(
+        snapshotTrueAgain.html,
+        snapshotTrue.html,
+        "Invalid DOM snapshot (uniqueIDs = true; stable across snapshots)"
     );
 });

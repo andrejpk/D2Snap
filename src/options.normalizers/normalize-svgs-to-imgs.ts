@@ -3,12 +3,12 @@ import { forElements } from "./util.normalizers.js";
 import { SVG_LABEL_TAG_NAMES } from "../constants.semantics.js";
 
 
-export interface SvgToImgSettings {
+export interface NormalizeSvgsToImgsSettings {
 	labelAttributeNames: readonly string[];
 }
 
 
-export const DEFAULT_SETTINGS: Readonly<SvgToImgSettings> = Object.freeze({
+export const DEFAULT_SETTINGS: Readonly<NormalizeSvgsToImgsSettings> = Object.freeze({
 	labelAttributeNames: Object.freeze([
 		"aria-labelledby",
 		"aria-label",
@@ -46,7 +46,8 @@ function resolveIdReferenceText(elementNode: Element, document: Document, id: st
 
 function getElementLabelAttribute(elementNode: Element, document: Document, labelAttributeNames: readonly string[]): string | null {
 	for(const labelAttributeName of labelAttributeNames) {
-		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName);
+		// Lower case: attribute names are case-sensitive on non-HTML elements (e.g., SVG)
+		const labelAttributeValue: string = resolveAttributeAsString(elementNode, labelAttributeName.toLowerCase());
 
 		if(!labelAttributeValue) continue;
 
@@ -90,11 +91,11 @@ function replaceElementByImage(elementNode: Element, document: Document, alt: st
 
 
 // Meta-image to image.
-export default forElements<SvgToImgSettings>((
+export default forElements<NormalizeSvgsToImgsSettings>((
 	virtualElement: Element,
 	liveElement: Element,
 	context: NormalizerContext,
-	settings: Partial<SvgToImgSettings> = {}
+	settings: Partial<NormalizeSvgsToImgsSettings> = {}
 ): void => {
 	const document: Document = context.document;
 	const labelAttributeNames: readonly string[] = settings.labelAttributeNames ?? DEFAULT_SETTINGS.labelAttributeNames;

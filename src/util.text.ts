@@ -47,3 +47,10 @@ export function transformWithRanking(
 		})
 		.join("\n");
 }
+
+const TEXT_ENCODER: TextEncoder = new TextEncoder();
+
+// UTF-8 byte length (string length counts UTF-16 code units).
+export function getByteLength(text: string): number {
+	return TEXT_ENCODER.encode(text).length;
+}

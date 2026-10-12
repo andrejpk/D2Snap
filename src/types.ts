@@ -36,7 +36,7 @@ export interface AttributeScoring {
     [ name: string ]: number;
 }
 
-export interface TextRankOptions {
+export interface TextRankSettings {
     damping: number;
     maxIterations: number;
     minSimilarity: number;
@@ -52,7 +52,8 @@ export interface D2SnapOptions {
     debug: boolean;
     filterEmptyElements: boolean;
     normalizers: readonly NodeNormalizerFn[];
-    sentenceRanker: SentenceRankerFn;
+    /** One ranker, or null for no ranking (leading sentences are kept). */
+    sentenceRanker: SentenceRankerFn | null;
     skip: {
         markdown: boolean;
         textRank: boolean;
@@ -60,6 +61,15 @@ export interface D2SnapOptions {
     minify: boolean;
     shadowDOM: boolean;
     uniqueIDs: boolean;
+};
+
+/** Pre-processing subset of the snapshot options (normalization without downsampling). */
+export type NormalizeDOMOptions = Pick<D2SnapOptions, "classifiers" | "normalizers" | "shadowDOM" | "uniqueIDs">;
+
+export interface NormalizeDOMResult {
+    dom: Element;
+    innerHTML: string; html: string;
+    outerHTML: string;
 };
 
 export interface D2SnapResult {

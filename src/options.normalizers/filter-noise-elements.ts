@@ -2,16 +2,12 @@ import { type NormalizerContext } from "../types.js";
 import { forElements } from "./util.normalizers.js";
 
 
-export interface FilterElementsSettings {
+export interface FilterNoiseElementsSettings {
 	tagNames: readonly string[];
 }
 
 
-const TAG_NAME_SETS_BY_LIST: WeakMap<readonly string[], Set<string>> = new WeakMap();
-const TAG_NAME_SETS_BY_KEY: Map<string, Set<string>> = new Map();
-
-
-export const DEFAULT_SETTINGS: Readonly<FilterElementsSettings> = Object.freeze({
+export const DEFAULT_SETTINGS: Readonly<FilterNoiseElementsSettings> = Object.freeze({
 	tagNames: Object.freeze([
 		"CIRCLE",
 		"CLIPPATH",
@@ -40,6 +36,10 @@ export const DEFAULT_SETTINGS: Readonly<FilterElementsSettings> = Object.freeze(
 	])
 });
 
+const TAG_NAME_SETS_BY_LIST: WeakMap<readonly string[], Set<string>> = new WeakMap();
+const TAG_NAME_SETS_BY_KEY: Map<string, Set<string>> = new Map();
+
+
 function normalizeCaseInsensitive(str: string): string {
 	return str.toUpperCase();
 }
@@ -66,11 +66,11 @@ function resolveTagNameSet(tagNames: readonly string[]): Set<string> {
 }
 
 
-export default forElements<FilterElementsSettings>((
+export default forElements<FilterNoiseElementsSettings>((
 	virtualElement: Element,
 	_liveElement: Element,
 	_context: NormalizerContext,
-	settings: Partial<FilterElementsSettings> = {}
+	settings: Partial<FilterNoiseElementsSettings> = {}
 ): void => {
 	const tagNames: Set<string> = resolveTagNameSet(settings.tagNames ?? DEFAULT_SETTINGS.tagNames);
 

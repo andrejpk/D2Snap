@@ -1,28 +1,6 @@
-import { tokenizeSentences, textRank, transformWithTextRank } from "../../dist.lib/TextRank.js";
+import { textRank, rankSentences } from "../../dist.lib/TextRank.js";
+import { tokenizeSentences, transformWithRanking } from "../../dist.lib/util.text.js";
 
-
-await test("Tokenize sentences", async () => {
-    const tokenization = tokenizeSentences(`
-        An AI agent is a fundamental concept in artificial intelligence.
-        At its core, an AI agent operates on a continuous cycle: sensors, processing, actuators.
-
-        The environment itself can be physical, like
-        a self-driving car navigating roads,
-        or entirely digital.
-    `, 3);
-
-    assertEqual(
-        tokenization,
-        [
-            "An AI agent is a fundamental concept in artificial intelligence.",
-            "At its core, an AI agent operates on a continuous cycle: sensors, processing, actuators.",
-            "The environment itself can be physical, like",
-            "a self-driving car navigating roads,",
-            "or entirely digital."
-        ],
-        "Tokenization returns invalid results"
-    );
-});
 
 await test("Apply sentence-based TextRank algorithm", async () => {
     const result = textRank(
@@ -132,12 +110,26 @@ await test("Apply sentence-based TextRank algorithm (No-ASCII; Greek)", async ()
     );
 });
 
-await test("Summarize text via highlevel text transform algorithm (ratio = 0.6)", async () => {
-    const summary = transformWithTextRank(`
+await test("Rank sentences via TextRank (sentence ranker)", async () => {
+    const sentences = tokenizeSentences(`
         Amsterdam was founded at the mouth of the Amstel River, which was dammed to control flooding.
         Originally a small fishing village in the 12th century, Amsterdam became a major world port during the Dutch Golden Age of the 17th century, when the Netherlands was an economic powerhouse.
         Amsterdam was the leading centre for finance and trade, as well as a hub of secular art production.
-    `, 0.6);
+    `);
+
+    assertEqual(
+        rankSentences(sentences),
+        textRank(sentences).map(entry => entry.sentence),
+        "Sentence ranker returns invalid results"
+    );
+});
+
+await test("Summarize text via highlevel text transform algorithm (ratio = 0.6; TextRank)", async () => {
+    const summary = transformWithRanking(`
+        Amsterdam was founded at the mouth of the Amstel River, which was dammed to control flooding.
+        Originally a small fishing village in the 12th century, Amsterdam became a major world port during the Dutch Golden Age of the 17th century, when the Netherlands was an economic powerhouse.
+        Amsterdam was the leading centre for finance and trade, as well as a hub of secular art production.
+    `, 0.6, rankSentences);
 
     assertEqual(
         summary,
@@ -148,3 +140,35 @@ await test("Summarize text via highlevel text transform algorithm (ratio = 0.6)"
         "Text transform returns invalid results"
     );
 });
+
+await test("Rank sentences via TextRank (options)", async () => {
+    const sentences = tokenizeSentences(`
+        Amsterdam was founded at the mouth of the Amstel River, which was dammed to control flooding.
+        Originally a small fishing village in the 12th century, Amsterdam became a major world port during the Dutch Golden Age of the 17th century, when the Netherlands was an economic powerhouse.
+        Amsterdam was the leading centre for finance and trade, as well as a hub of secular art production.
+    `);
+
+    assertTrue(
+        textRank(sentences, { damping: 0.5 })[0].score !== textRank(sentences)[0].score,
+        "TextRank ignores options"
+    );
+    assertEqual(
+        rankSentences(sentences, { damping: 0.5 }),
+        textRank(sentences, { damping: 0.5 }).map(entry => entry.sentence),
+        "Sentence ranker ignores options"
+    );
+});
+
+await test("Apply sentence-based TextRank algorithm (no sentences)", async () => {
+    assertEqual(
+        textRank([]),
+        [],
+        "TextRank returns invalid results (no sentences)"
+    );
+    assertEqual(
+        rankSentences([]),
+        [],
+        "Sentence ranker returns invalid results (no sentences)"
+    );
+});
+
