@@ -1,10 +1,10 @@
 import { type D2SnapOptions, type NodeNormalizerFn } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
-import { minifyDOM, resolveReplacingNodes, traverseDom } from "./util.dom.js";
+import { minifyDOM, resolveComposedChildNodes, resolveReplacingNodes, traverseDom } from "./util.dom.js";
 import { formatHTML, isVoidElement } from "./util.html.js";
 
 
-type DOMPreProcessingOptions = Pick<D2SnapOptions, "classifiers" | "normalizers">;
+type DOMPreProcessingOptions = Pick<D2SnapOptions, "classifiers" | "normalizers" | "shadowDOM">;
 
 interface DOMPostProcessingOptions {
 	filterEmptyElements: boolean;
@@ -22,11 +22,32 @@ function toArray<T>(value: T | T[] | undefined): T[] {
 	return Array.isArray(value) ? value : [ value ];
 }
 
-function mapChildNodes(
+function hasSlotChildNode(virtualNode: Node): boolean {
+	return !!(virtualNode as Element).querySelector?.(":scope > slot");
+}
+
+function composeAndMapChildNodes(
 	virtualNode: Node,
 	liveNode: Node,
-	liveByVirtual: Map<Node, Node>
+	liveByVirtual: Map<Node, Node>,
+	document: Document,
+	shadowDOM: boolean
 ): void {
+	// Shadow host or slot parent: replace with the composed (rendered) children.
+	if(shadowDOM && ((liveNode as Element).shadowRoot || hasSlotChildNode(virtualNode))) {
+		const liveChildNodes: Node[] = resolveComposedChildNodes(liveNode);
+		const virtualChildNodes: Node[] = liveChildNodes
+			.map((liveChildNode: Node) => document.importNode(liveChildNode, true));
+
+		(virtualNode as Element).replaceChildren(...virtualChildNodes);
+
+		for(let i = 0; i < virtualChildNodes.length; i++) {
+			liveByVirtual.set(virtualChildNodes[i], liveChildNodes[i]);
+		}
+
+		return;
+	}
+
 	const virtualChildNodes: NodeListOf<ChildNode> = virtualNode.childNodes;
 	const liveChildNodes: NodeListOf<ChildNode> = liveNode.childNodes;
 
@@ -99,10 +120,10 @@ export function preProcessDOM(
 ): void {
 	const normalizers: NodeNormalizerFn[] = toArray(options.normalizers);
 
-	// Lazy pairing during the traversal: a node's children are paired when the node
-	// is visited, before its normalizers run.
+	// Lazy pairing during the traversal: a node's children are paired (and composed,
+	// in case of enabled shadow DOM) when the node is visited, before its normalizers run.
 	const liveByVirtual: Map<Node, Node> = new Map<Node, Node>();
-	// Replacements created by normalizers (inherit only).
+	// Replacements created by normalizers (never composed, only inherit).
 	const inheritedLiveByVirtual: Map<Node, Node> = new Map<Node, Node>();
 
 	// Non-full document input snippets are wrapped by BODY: pair the wrapped child.
@@ -114,7 +135,7 @@ export function preProcessDOM(
 
 	// Root node is not visited.
 	(virtualDomRootEquivalent === virtualDomRoot)
-		&& mapChildNodes(virtualDomRoot, liveDomRoot, liveByVirtual);
+		&& composeAndMapChildNodes(virtualDomRoot, liveDomRoot, liveByVirtual, document, options.shadowDOM);
 
 	traverseDom<Node>(
 		virtualDomRoot,
@@ -122,9 +143,9 @@ export function preProcessDOM(
 		(node: Node) => {
 			const pairedLiveNode: Node | undefined = liveByVirtual.get(node);
 
-			// Pair
+			// Compose
 			(pairedLiveNode && (node.nodeType === NodeType.ELEMENT_NODE))
-				&& mapChildNodes(node, pairedLiveNode, liveByVirtual);
+				&& composeAndMapChildNodes(node, pairedLiveNode, liveByVirtual, document, options.shadowDOM);
 
 			// Normalize
 			// STRICT ORDER MATTERS

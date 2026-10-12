@@ -57,6 +57,24 @@ export function resolveRoot(node: DOM): Element {
 	return (node as Document)?.body ?? (node as Document)?.documentElement ?? node;
 }
 
+function resolveSlottedNodes(node: Node): Node[] {
+	// Slots only distribute within shadow trees.
+	if(node.nodeName !== "SLOT" || !(node.getRootNode() as ShadowRoot).host) return [ node ];
+
+	const assignedNodes: Node[] = (node as HTMLSlotElement).assignedNodes({ flatten: true });
+
+	return assignedNodes.length
+		? assignedNodes
+		: [ ...node.childNodes ].flatMap((childNode: Node) => resolveSlottedNodes(childNode));
+}
+
+// Child nodes as rendered: (open) shadow root content, slots resolved to the assigned
+// light nodes (or fallback content). Unassigned light nodes of a shadow host are skipped.
+export function resolveComposedChildNodes(node: Node): Node[] {
+	return [ ...((node as Element).shadowRoot ?? node).childNodes ]
+		.flatMap((childNode: Node) => resolveSlottedNodes(childNode));
+}
+
 // Nodes that took the place of a detached node (between its former siblings).
 export function resolveReplacingNodes(
 	parentNode: Node | null,
@@ -140,7 +158,7 @@ export function traverseDom<T>(
 		}
 
 		// Attached: continue with the latest children.
-		// Detached: continue with the returned replacement nodes, else with the nodes replacing the original.
+		// Detached: continue with the returned replacement nodes, else with nodes that replace the original.
 		const nextNodes: Node[] = isInRoot(node)
 			? [ ...node.childNodes ]
 			: (replacingNodes ?? resolveReplacingNodes(parentNode, previousSibling, nextSibling));

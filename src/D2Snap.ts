@@ -15,14 +15,14 @@ import { CONFIG } from "./var.CONFIG.js";
 import {
 	DEFAULT_ATTRIBUTE_SCORES
 } from "./var.DEFAULTS_ATTRIBUTE_SCORES.js";
+import { DEFAULT_NORMALIZERS } from "./normalizers.js";
 import { resolveDocument, resolveRoot, traverseDom } from "./util.dom.js";
 import { isInlineElement, isVoidElement } from "./util.html.js";
 import { postProcessDOM, postProcessHTML, preProcessDOM } from "./D2Snap.processing.js";
 import { deepMerge } from "./util.obj.js";
 import { transformWithRanking } from "./util.text.js";
-import isActionableElement from "./classifier.isActionableElement.js";
-import isTextElement from "./classifier.isTextElement.js";
-import { DEFAULT_NORMALIZERS } from "./normalizers.js";
+import isActionableElement from "./classifier.actionable-element.js";
+import isTextElement from "./classifier.text-formatting-element.js";
 
 
 const WHITESPACE_REGEX: RegExp = /^\s$/;
@@ -101,6 +101,7 @@ export function d2Snap(
 		filterEmptyElements: true,
 		minify: true,
 		normalizers: DEFAULT_NORMALIZERS,
+		shadowDOM: false,
 		sentenceRanker: rankSentences,
 		skip: {
 			markdown: false,
@@ -264,6 +265,7 @@ export function d2Snap(
 	// Clone
 	t0 = t();
 	const inertDoc: Document = document.implementation.createHTMLDocument("");
+	// Shadow DOM content is composed into the clone during pre-processing (if enabled).
 	const rootElementClone: DOM = inertDoc.importNode(rootElement, true);
 	switch(rootElement.localName.toLowerCase()) {
 		case "html":
@@ -290,7 +292,8 @@ export function d2Snap(
 	t0 = t();
 	preProcessDOM(virtualDOM, liveDOM, inertDoc, {
 		classifiers: optionsWithDefaults.classifiers,
-		normalizers: optionsWithDefaults.normalizers
+		normalizers: optionsWithDefaults.normalizers,
+		shadowDOM: optionsWithDefaults.shadowDOM
 	});
 	timings.preProcessing = t() - t0;
 

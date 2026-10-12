@@ -55,6 +55,7 @@ export interface D2SnapOptions {
         textRank: boolean;
     };
     minify: boolean;
+    shadowDOM: boolean;
     uniqueIDs: boolean;
 };
 
