@@ -5,6 +5,7 @@ import {
 	type D2SnapOptions,
 	type D2SnapResult,
 	type DOM,
+	type ElementClassifierFn,
 	type ElementWithDepth,
 	type TextNode
 } from "./types.js";
@@ -19,15 +20,14 @@ import {
 	DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES
 } from "./var.DEFAULTS_ATTRIBUTES.js";
 import {
-	DEFAULT_CLASS_ACTIONABLE_TAG_NAMES,
-	DEFAULT_CLASS_TEXT_TAG_NAMES,
 	DEFAULT_FILTER_TAG_NAMES
 } from "./var.DEFAULTS_TAGS.js";
-import { ACTIONABLE_ROLE_ATTRIBUTE_VALUES as ACTIONABLE_ROLE_ATTRIBUTE_VALUES_ARRAY } from "./var.SEMANTICS_ATTRIBUTES.js";
 import { resolveDocument, resolveRoot, traverseDom } from "./util.dom.js";
 import { isInlineElement, isVoidElement } from "./util.html.js";
 import { postProcessDOM, postProcessHTML, preProcessDOM } from "./D2Snap.processing.js";
 import { deepMerge } from "./util.obj.js";
+import isActionableElement from "./classifier.isActionableElement.js";
+import isTextElement from "./classifier.isTextElement.js";
 
 
 const WHITESPACE_REGEX: RegExp = /^\s$/;
@@ -38,9 +38,6 @@ const WHITESPACE_REGEX: RegExp = /^\s$/;
 // negative lookahead spares real namespaced custom elements (`FB:LIKE`), whose
 // tail after `:` is a valid NCName.
 const COLON_SCHEME_TAG_REGEX: RegExp = /^[a-z][a-z0-9+.-]*:(?![a-z_][a-z0-9_.-]*$)/i;
-const ACTIONABLE_ROLE_ATTRIBUTE_VALUES: Set<string> = new Set(
-	ACTIONABLE_ROLE_ATTRIBUTE_VALUES_ARRAY.map(t => t.toLowerCase())
-);
 
 function validateUnitParameter(name: string, value: number) {
 	if(!Number.isFinite(value) || value < 0 || value > 1) {
@@ -85,21 +82,6 @@ export function getAttributeScore(attrName: string, attributeScores: Map<string,
 	return attributeScore;
 }
 
-export function isActionableElement(
-	elementNode: Element,
-	actionableElementTagNames: Set<string> = new Set(DEFAULT_CLASS_ACTIONABLE_TAG_NAMES),
-	actionableRoleAttributeValues: Set<string> = ACTIONABLE_ROLE_ATTRIBUTE_VALUES
-): boolean {
-	return (
-		actionableElementTagNames.has(elementNode.tagName.toUpperCase())
-		|| actionableRoleAttributeValues.has(
-			elementNode.getAttribute("role")?.toLowerCase()
-			?? elementNode.role
-			?? ""
-		)
-	);
-}
-
 export function d2Snap(
 	dom: DOM,
 	rE: number, rA: number, rT: number,
@@ -116,9 +98,9 @@ export function d2Snap(
 	const originalSize = rootElement.innerHTML.length;
 	const optionsWithDefaults: D2SnapOptions = deepMerge<D2SnapOptions, DeepPartial<D2SnapOptions>>({
 		attributeScores: DEFAULT_ATTRIBUTE_SCORES,
-		classification: {
-			actionableElements: DEFAULT_CLASS_ACTIONABLE_TAG_NAMES,
-			textElements: DEFAULT_CLASS_TEXT_TAG_NAMES
+		classifiers: {
+			actionableElements: isActionableElement,
+			textElements: isTextElement
 		},
 		debug: false,
 		filter: {
@@ -152,18 +134,8 @@ export function d2Snap(
 			.map((entry: [ string, number ]) => [ entry[0].toLowerCase(), entry[1] ])
 	);
 
-	const actionableElementTagNames: Set<string> = new Set(
-		(optionsWithDefaults.classification?.actionableElements ?? [])
-			.map((tagName: string) => tagName.toUpperCase())
-	);
-	const textElementTagNames: Set<string> = new Set(
-		(optionsWithDefaults.classification?.textElements ?? [])
-			.map((tagName: string) => tagName.toUpperCase())
-	);
-
-	const _isActionableElement = (elementNode: Element) => {
-		return isActionableElement(elementNode, actionableElementTagNames);
-	};
+	const _isActionableElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.actionableElements;
+	const _isTextElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.textElements;
 
 	const turndown: Turndown = new Turndown([ _isActionableElement ]);
 
@@ -201,7 +173,7 @@ export function d2Snap(
 		if(optionsWithDefaults.skip?.markdown) return;
 		if(elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
 		if(_isActionableElement(elementNode)) return;
-		if(!textElementTagNames.has(elementNode.tagName.toUpperCase())) return;
+		if(!_isTextElement(elementNode)) return;
 
 		// Markdown
 		const markdown = turndown.translate(elementNode.outerHTML);

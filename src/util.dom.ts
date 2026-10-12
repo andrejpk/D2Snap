@@ -57,7 +57,33 @@ export function resolveRoot(node: DOM): Element {
 	return (node as Document)?.body ?? (node as Document)?.documentElement ?? node;
 }
 
-// Pre-order DFS: child before parent.
+// Nodes that took the place of a detached node (between its former siblings).
+export function resolveReplacingNodes(
+	parentNode: Node | null,
+	previousSibling: Node | null,
+	nextSibling: Node | null
+): Node[] {
+	if(!parentNode) return [];
+	if(previousSibling && (previousSibling.parentNode !== parentNode)) return [];
+	if(nextSibling && (nextSibling.parentNode !== parentNode)) return [];
+
+	const replacingNodes: Node[] = [];
+
+	let currentNode: Node | null = previousSibling
+		? previousSibling.nextSibling
+		: parentNode.firstChild;
+
+	while(currentNode && (currentNode !== nextSibling)) {
+		replacingNodes.push(currentNode);
+
+		currentNode = currentNode.nextSibling;
+	}
+
+	return replacingNodes;
+}
+
+// Pre-order DFS: parent before child.
+// Children are read after the callback, so the latest DOM is traversed.
 export function traverseDom<T>(
 	root: Element,
 	filter: number = NodeFilter.SHOW_ALL,
@@ -66,6 +92,14 @@ export function traverseDom<T>(
 	const showElement: boolean = ((filter & NodeFilter.SHOW_ELEMENT) !== 0);
 	const showText: boolean = ((filter & NodeFilter.SHOW_TEXT) !== 0);
 	const showComment = ((filter & NodeFilter.SHOW_COMMENT) !== 0);
+
+	// Check if root is connected: 'isConnected' instead of an ancestor walk ('contains').
+	const isRootConnected: boolean = root.isConnected;
+	const isInRoot = (node: Node): boolean => {
+		return isRootConnected
+			? node.isConnected
+			: root.contains(node);
+	};
 
 	// Pre-order DFS
 	const stack: Node[] = [];
@@ -77,30 +111,31 @@ export function traverseDom<T>(
 	while(stack.length) {
 		const node: Node = stack.pop()!;
 
-		if(!root.contains(node)) continue;
+		if(!isInRoot(node)) continue;
 
-		const children: Node[] = [ ...node.childNodes ];
-		const childIndex = stack.length;
-		const childCount = children.length;
-		for(let i = children.length - 1; i >= 0; i--) {
-			stack.push(children[i]);
-		}
+		const parentNode: Node | null = node.parentNode;
+		const previousSibling: Node | null = node.previousSibling;
+		const nextSibling: Node | null = node.nextSibling;
 
 		const passes = (filter === NodeFilter.SHOW_ALL)
             || ((node.nodeType === NodeType.ELEMENT_NODE) && showElement)
             || ((node.nodeType === NodeType.TEXT_NODE) && showText)
             || ((node.nodeType === NodeType.COMMENT_NODE) && showComment);
 
-		if(!passes) continue;
+		const replacingNodes: Node[] | undefined = passes
+			? (cb(node as T) as Node[] | undefined)
+			: undefined;
 
-		const replacingNodes: Node[] | void = cb(node as T);
+		// Attached: continue with the latest children.
+		// Detached: continue with the returned replacement nodes, or the nodes that replaced the original.
+		const nextNodes: Node[] = isInRoot(node)
+			? [ ...node.childNodes ]
+			: (replacingNodes ?? resolveReplacingNodes(parentNode, previousSibling, nextSibling));
 
-		if(!replacingNodes?.length) continue;
-
-		// Swap the original (now-detached) children on the stack with the
-		// replacement nodes. Insert reversed so the first replacement is at
-		// the top of the stack and gets popped first.
-		stack.splice(childIndex, childCount, ...[ ...replacingNodes ].reverse());
+		// Insert reversed so the first node is at the top of the stack: pre-order.
+		for(let i = nextNodes.length - 1; i >= 0; i--) {
+			stack.push(nextNodes[i]);
+		}
 	}
 }
 

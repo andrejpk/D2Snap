@@ -1,5 +1,7 @@
 export type DeepPartial<T> = {
-	[P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
+	[P in keyof T]?: T[P] extends (...args: never[]) => unknown
+		? T[P]
+		: T[P] extends object ? DeepPartial<T[P]> : T[P];
 };
 
 
@@ -11,6 +13,8 @@ export type TextNode = Node & {
 };
 
 export type DOM = Document | Element;
+
+export type ElementClassifierFn<T> = (element: T) => boolean;
 
 
 export interface ElementWithDepth extends HTMLElement {
@@ -31,9 +35,9 @@ export interface TextRankOptions {
 export interface D2SnapOptions {
     attributeScores: AttributeScoring;
     attributeScoring?: AttributeScoring;    // deprecated (alias)
-    classification: {
-        actionableElements: string[];
-        textElements: string[];
+    classifiers: {
+        actionableElements: ElementClassifierFn<Element>;
+        textElements: ElementClassifierFn<Element>;
     };
     debug: boolean;
     filter: {

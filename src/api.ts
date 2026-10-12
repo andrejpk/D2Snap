@@ -24,9 +24,15 @@ export async function adaptiveD2Snap(
 }
 
 
-export { type D2SnapOptions, type TextRankOptions, type D2SnapResult, type AttributeScoring } from "./types.js";
+export type {
+	D2SnapOptions,
+	TextRankOptions,
+	D2SnapResult,
+	AttributeScoring,
+	ElementClassifierFn
+} from "./types.js";
 
-export { isActionableElement } from "./D2Snap.js";
+export { isActionableElement, isTextElement } from "./classifiers.js";
 
 
 // TODO: Overload with r and rE, rA, rT?
