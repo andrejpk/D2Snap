@@ -29,7 +29,7 @@ function hasRenderedText(node) {
   return false;
 }
 function elementHasNoTextContent(elementNode) {
-  return !hasRenderedText(elementNode) && ![...elementNode.querySelectorAll("img[alt]")].some((image) => !!resolveAttributeAsString(image, "alt"));
+  return !hasRenderedText(elementNode) && ![...elementNode.getElementsByTagName("img")].some((image) => !!resolveAttributeAsString(image, "alt"));
 }
 function resolveAttributeAsString(elementNode, attributeName) {
   return (elementNode.getAttribute(attributeName) ?? "").trim();

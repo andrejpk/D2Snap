@@ -74,21 +74,14 @@ function preProcessDOM(virtualDomRoot, liveDomRoot, document, options) {
 }
 function postProcessDOM(domRoot, options, isActionableElement) {
   if (options.filterEmptyElements) {
-    let hasRemovedElement;
-    do {
-      hasRemovedElement = false;
-      traverseDom(
-        domRoot,
-        NodeFilter.SHOW_ELEMENT,
-        (elementNode) => {
-          if (isActionableElement(elementNode)) return;
-          if (isVoidElement(elementNode.tagName)) return;
-          if (elementNode.children.length || elementNode.textContent.trim().length) return;
-          elementNode.remove();
-          hasRemovedElement = true;
-        }
-      );
-    } while (hasRemovedElement);
+    const elementNodes = [...domRoot.getElementsByTagName("*")];
+    for (let i = elementNodes.length - 1; i >= 0; i--) {
+      const elementNode = elementNodes[i];
+      if (isActionableElement(elementNode)) continue;
+      if (isVoidElement(elementNode.tagName)) continue;
+      if (elementNode.children.length || (elementNode.textContent ?? "").trim().length) continue;
+      elementNode.remove();
+    }
   }
   if (options.minify) {
     minifyDOM(domRoot);

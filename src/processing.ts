@@ -168,26 +168,20 @@ export function postProcessDOM(
 ): void {
 	// Remove elements that became empty
 	if (options.filterEmptyElements) {
-		let hasRemovedElement: boolean;
+		// Reverse tree order: descendants precede their ancestors, so a single pass also removes
+		// elements that become empty upon removal of their descendants (subtree query: no
+		// document access).
+		const elementNodes: Element[] = [ ...domRoot.getElementsByTagName("*") ];
 
-		do {
-			hasRemovedElement = false;
+		for (let i = elementNodes.length - 1; i >= 0; i--) {
+			const elementNode: Element = elementNodes[i];
 
-			traverseDom<HTMLElement>(
-				domRoot,
-				NodeFilter.SHOW_ELEMENT,
-				(elementNode: HTMLElement) => {
-					if (isActionableElement(elementNode)) return;
-					// TODO: isVoid helper, too
-					if (isVoidElement(elementNode.tagName)) return;
-					if (elementNode.children.length || elementNode.textContent.trim().length) return;
+			if (isActionableElement(elementNode)) continue;
+			if (isVoidElement(elementNode.tagName)) continue;
+			if (elementNode.children.length || (elementNode.textContent ?? "").trim().length) continue;
 
-					elementNode.remove();
-
-					hasRemovedElement = true;
-				}
-			);
-		} while (hasRemovedElement);
+			elementNode.remove();
+		}
 	}
 
 	// Minify

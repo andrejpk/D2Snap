@@ -854,3 +854,64 @@ await test("Debug formatting keeps spaces between inline elements", async () => 
     assertIn("Burgers</a> <a", debugSnapshot.html, "Space between inline elements dropped");
 });
 
+// ---------------------------------------------------------------------------
+// Property access on a jsdom document runs a named-property lookup that walks
+// the whole document whenever an element that can carry a name (img, form,
+// iframe, …) was inserted or removed since. Snapshots alternate DOM mutations
+// and document accesses, so per-element accesses made snapshots quadratic in
+// the page size (2 MB page: 46 s instead of 13 s). Guarded via call counts on
+// the window's prototypes (shared by the snapshot's internal document), which
+// is deterministic, unlike timing ratios.
+// ---------------------------------------------------------------------------
+function createGuardPage(blockCount) {
+    return "<main>" + Array.from({ length: blockCount }, (_, i) => `
+        <section class="card">
+            <p>Burger ${i} <img src="b${i}.png" alt="Burger ${i}"> with <b>fries</b>.</p>
+            <span class="fa fa-cart"></span>
+            <button>Add</button>
+        </section>`).join("") + "</main>";
+}
+
+async function countCalls(blockCount, prototypeName, methodName) {
+    const { window } = new JSDOM(createGuardPage(blockCount));
+    const prototype = window[prototypeName].prototype;
+    const method = prototype[methodName];
+    let calls = 0;
+
+    prototype[methodName] = function(...args) {
+        calls++;
+
+        return method.apply(this, args);
+    };
+
+    try {
+        await d2Snap(window.document, 0.5, 0.5, 0.5, {
+            normalizers: defaults.NORMALIZERS.map(normalizer => (normalizer === defaults.normalizers.normalizeIconClassesToImgs)
+                ? (virtualNode, liveNode, context) => normalizer(virtualNode, liveNode, context, { iconClassPrefixes: [ "fa" ] })
+                : normalizer)
+        });
+    } finally {
+        prototype[methodName] = method;
+        window.close();
+    }
+
+    return calls;
+}
+
+await test("Markdown pass creates one range per snapshot", async () => {
+    const calls = await countCalls(200, "Document", "createRange");
+
+    assertTrue(calls <= 1, `Ranges created per text element (${calls} for 200 blocks)`);
+});
+
+await test("Selector queries do not grow with the page", async () => {
+    for(const prototypeName of [ "Element", "Document" ]) {
+        const callsSmall = await countCalls(50, prototypeName, "querySelectorAll");
+        const callsLarge = await countCalls(200, prototypeName, "querySelectorAll");
+
+        assertTrue(
+            callsLarge === callsSmall,
+            `${prototypeName}.querySelectorAll calls grow with the page (${callsSmall} for 50 blocks, ${callsLarge} for 200 blocks)`
+        );
+    }
+});

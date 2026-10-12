@@ -63,6 +63,19 @@ export interface D2SnapOptions {
     uniqueIDs: boolean;
 };
 
+/** Downsampling ratios: specific ratios (rE, rA, rT) fall back to r, else to 0 (no reduction). */
+export interface D2SnapRatios {
+    r?: number;
+    rE?: number;
+    rA?: number;
+    rT?: number;
+};
+
+/** Argument forms of d2Snap() following the DOM (e.g., to pass all forms through a wrapper). */
+export type D2SnapArgs =
+    | [ rE: number, rA: number, rT: number, options?: DeepPartial<D2SnapOptions> ]
+    | [ ratios: D2SnapRatios, options?: DeepPartial<D2SnapOptions> ];
+
 /** Pre-processing subset of the snapshot options (normalization without downsampling). */
 export type NormalizeDOMOptions = Pick<D2SnapOptions, "classifiers" | "normalizers" | "shadowDOM" | "uniqueIDs">;
 

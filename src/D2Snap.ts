@@ -10,7 +10,9 @@ import {
 	type NormalizeDOMOptions,
 	type NormalizeDOMResult,
 	type SentenceRankerFn,
-	type TextNode
+	type TextNode,
+	type D2SnapArgs,
+	type D2SnapRatios
 } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
 import { CONFIG } from "./config.js";
@@ -36,6 +38,40 @@ function validateUnitParameter(name: string, value: number) {
 	if(!Number.isFinite(value) || value < 0 || value > 1) {
 		throw new RangeError(`Parameter ${name} expects value in [0, 1], got ${value}`);
 	}
+}
+
+// Resolves the d2Snap() argument forms (rE, rA, rT | ratios object) to specific ratios.
+// Validates r; specific ratios are validated by d2Snap().
+export function resolveD2SnapArgs(args: D2SnapArgs): {
+	rE: number; rA: number; rT: number;
+	options: DeepPartial<D2SnapOptions>;
+} {
+	const [ ratiosOrRE, optionsOrRA ] = args;
+
+	// Ratios object: specific ratios fall back to r, else to 0 (no reduction)
+	if((typeof(ratiosOrRE) === "object") && (ratiosOrRE !== null)) {
+		const ratios: D2SnapRatios = ratiosOrRE;
+
+		(ratios.r !== undefined)
+			&& validateUnitParameter("r", ratios.r);
+
+		const r: number = ratios.r ?? 0;
+
+		return {
+			rE: ratios.rE ?? r,
+			rA: ratios.rA ?? r,
+			rT: ratios.rT ?? r,
+			options: (optionsOrRA as DeepPartial<D2SnapOptions>) ?? {}
+		};
+	}
+
+	// Specific ratios
+	const [ rE, rA, rT, options ] = args as [ number, number, number, DeepPartial<D2SnapOptions>? ];
+
+	return {
+		rE, rA, rT,
+		options: options ?? {}
+	};
 }
 
 function defineNonEnumerableProperty(obj: object, prop: string, value: unknown) {
@@ -157,11 +193,12 @@ export function normalizeDOM(
 	};
 }
 
-export function d2Snap(
-	dom: DOM,
-	rE: number, rA: number, rT: number,
-	options: DeepPartial<D2SnapOptions> = {}
-): D2SnapResult {
+export function d2Snap(dom: DOM, rE: number, rA: number, rT: number, options?: DeepPartial<D2SnapOptions>): D2SnapResult;
+export function d2Snap(dom: DOM, ratios: D2SnapRatios, options?: DeepPartial<D2SnapOptions>): D2SnapResult;
+export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult;	// all forms (e.g., passed through by wrappers)
+export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
+	const { rE, rA, rT, options } = resolveD2SnapArgs(args);
+
 	validateUnitParameter("rE", rE);
 	validateUnitParameter("rA", rA);
 	validateUnitParameter("rT", rT);
@@ -234,6 +271,11 @@ export function d2Snap(
 			?.removeChild(sourceElement);
 	}
 
+	// Document methods are bound once: property access on a jsdom document runs a named-property
+	// lookup that re-walks the whole document after mutations (quadratic across elements).
+	let contextualFragmentRange: Range | null = null;
+	let createTextNode: ((data: string) => Text) | null = null;
+
 	function snapElementTextFormattingNode(document: Document, elementNode: HTMLElement) {
 		if(optionsWithDefaults.skip?.markdown) return;
 		if(elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
@@ -241,10 +283,22 @@ export function d2Snap(
 		if(!_isTextElement(elementNode)) return;
 
 		// Markdown
+		contextualFragmentRange ??= document.createRange();
+		createTextNode ??= document.createTextNode.bind(document);
+
 		const markdown = turndown.translate(elementNode.outerHTML);
-		const markdownNodesFragment = document
-			.createRange()
-			.createContextualFragment(markdown);
+
+		// Plain text (most results): a text node equals the parser result – no markup, no character
+		// references, no line break or NUL normalisation – so parsing is skipped.
+		if(!/[<&\r\0]/.test(markdown)) {
+			const replacingNodes: Node[] = markdown ? [ createTextNode(markdown) ] : [];
+
+			elementNode.replaceWith(...[ createTextNode(" "), ...replacingNodes, createTextNode(" ") ]);
+
+			return replacingNodes;
+		}
+
+		const markdownNodesFragment = contextualFragmentRange.createContextualFragment(markdown);
 
 		// Drop bogus `<scheme:>` elements the HTML parser synthesises from
 		// markdown autolinks before they enter the tree (and become containers).
@@ -270,7 +324,7 @@ export function d2Snap(
 		const replacingNodes: Node[] = [...markdownNodesFragment.childNodes];
 
 		elementNode
-			.replaceWith(...[ document.createTextNode(" "), ...replacingNodes, document.createTextNode(" ") ]);
+			.replaceWith(...[ createTextNode(" "), ...replacingNodes, createTextNode(" ") ]);
 
 		// Strip same-tag replacements before returning for re-traversal:
 		// Turndown passes some textFormatting elements through verbatim

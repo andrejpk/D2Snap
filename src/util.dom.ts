@@ -193,7 +193,7 @@ function isWithinWhitespacePreservingElement(element: Element, domRoot: Element)
 }
 
 export function minifyDOM(domRoot: Element): void {
-	traverseDom<HTMLElement>(
+	traverseDom<TextNode>(
 		domRoot,
 		NodeFilter.SHOW_TEXT,
 		(textNode: TextNode) => {
@@ -209,7 +209,7 @@ export function minifyDOM(domRoot: Element): void {
 		}
 	);
 
-	traverseDom<HTMLElement>(
+	traverseDom<TextNode>(
 		domRoot,
 		NodeFilter.SHOW_TEXT,
 		(textNode: TextNode) => {
@@ -317,7 +317,7 @@ export function minifyDOM(domRoot: Element): void {
 		}
 	);
 
-	traverseDom<HTMLElement>(
+	traverseDom<TextNode>(
 		domRoot,
 		NodeFilter.SHOW_TEXT,
 		(textNode: TextNode) => {

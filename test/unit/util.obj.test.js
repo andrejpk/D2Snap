@@ -95,3 +95,39 @@ await test("Deep merge two objects (arrays, null, functions)", async () => {
     );
 });
 
+await test("Deep merge two objects (undefined keeps target)", async () => {
+    assertEqual(
+        deepMerge(
+            {
+                debug: false,
+                classifiers: {
+                    actionableElements: "default",
+                    textElements: "default"
+                },
+                sentenceRanker: "default"
+            },
+            {
+                debug: undefined,
+                classifiers: undefined,
+                sentenceRanker: null
+            }
+        ),
+        {
+            debug: false,
+            classifiers: {
+                actionableElements: "default",
+                textElements: "default"
+            },
+            sentenceRanker: null
+        },
+        "Invalid deep-merged objects (undefined keeps target, null overrides)"
+    );
+    assertEqual(
+        deepMerge(
+            { classifiers: { actionableElements: "default", textElements: "default" } },
+            { classifiers: { actionableElements: "custom", textElements: undefined } }
+        ),
+        { classifiers: { actionableElements: "custom", textElements: "default" } },
+        "Invalid deep-merged objects (nested undefined keeps target)"
+    );
+});

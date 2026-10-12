@@ -46,7 +46,8 @@ function hasRenderedText(node: Node): boolean {
 
 function elementHasNoTextContent(elementNode: Element): boolean {
 	return !hasRenderedText(elementNode)
-		&& ![ ...elementNode.querySelectorAll("img[alt]") ]
+		// Subtree query (the selector engine accesses the document, which re-walks it after mutations)
+		&& ![ ...elementNode.getElementsByTagName("img") ]
 			.some((image: Element) => !!resolveAttributeAsString(image, "alt"));
 }
 

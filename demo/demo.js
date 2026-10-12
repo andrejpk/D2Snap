@@ -116,7 +116,19 @@
 				sourceStringCb: element => element.getAttribute?.("data-uid") || undefined
 			});
 
-		return jsyaml.dump(JSON.parse(tree), {
+		const renameSourceToUID = ({
+			source,
+			children,
+			...node
+		}) => {
+			return {
+				...node,
+				...((source !== undefined) ? { uid: source } : {}),
+				...(children ? { children: children.map(renameSourceToUID) } : {})
+			};
+		};
+
+		return jsyaml.dump(renameSourceToUID(JSON.parse(tree)), {
 			lineWidth: -1
 		});
 	}
@@ -124,9 +136,10 @@
 	function getIndexListRepresentation(dom) {
 		return [ ...dom.querySelectorAll("*") ]
 			.map((element, i) => {
+				const uid = element.getAttribute("data-uid");
 				const text = getTruncatedDirectText(element);
 
-				return `[${i}] ${element.tagName.toUpperCase()}${text ? ` "${text}"` : ""}`;
+				return `[${uid ?? i}] ${element.tagName.toUpperCase()}${text ? ` "${text}"` : ""}`;
 			})
 			.join("\n");
 	}
@@ -135,11 +148,13 @@
 		return JSON.stringify(
 			[ ...dom.querySelectorAll("*") ]
 				.map(element => {
+					const uid = element.getAttribute("data-uid");
 					const role = element.getAttribute("role");
 
 					return {
 						tagName: element.tagName.toUpperCase(),
 						text: getTruncatedDirectText(element),
+						...(uid ? { uid } : {}),
 						...(role ? { role } : {})
 					};
 				}),
@@ -256,7 +271,7 @@
 
 		if(id != updateCount) return;
 
-		textareaHTMLOutput.value = result.dom;
+		textareaHTMLOutput.value = result.html;
 		textareaA11yTreeOutput.value = getAccessibilityTreeRepresentation(result.dom);
 		textareaIndexOutput.value = getIndexListRepresentation(result.dom);
 		textareaIndexJSONOutput.value = getIndexJSONRepresentation(result.dom);

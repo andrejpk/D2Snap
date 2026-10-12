@@ -42,12 +42,21 @@ import * as D2Snap from "@webfuse-com/d2snap";
 
 ### `d2Snap()`
 
-Downsample a DOM – given a DOM and specific downsampling ratios.
+Downsample a DOM – given a DOM and downsampling ratios: specific ratios, or a ratios object.
 
 ``` ts
 function d2Snap(
   domOrHTML: Document | Element | string,
   rE: number, rA: number, rT: number,
+  options?: D2SnapOptions
+): Promise<D2SnapResult>
+
+function d2Snap(
+  domOrHTML: Document | Element | string,
+  ratios: {
+    rE?: number; rA?: number; rT?: number;
+    r?: number;  // r = rE = rA = rT
+  },
   options?: D2SnapOptions
 ): Promise<D2SnapResult>
 ```
@@ -62,9 +71,19 @@ function d2Snap(
 | `rE` | Element downsampling ratio. Controls the preserved DOM height by ratio. | `[0, 1]` |
 | `rA` | Attribute downsampling ratio (threshold). Controls which attributes are preserved by score threshold (latent ratio if scores are affordance-frequency balanced). Attribute scores are predefined based on empirical adjustment, but can be overridden via `options`. | `[0, 1]` |
 | `rT` | Text downsampling ratio. Controls the preserved sentence-based text length per text node. | `[0, 1]` |
+| `ratios` | Downsampling ratios object. Specific ratios (`rE`, `rA`, `rT`) fall back to `r`, else to `0` (no reduction). | `D2SnapRatios` |
 | `options` | Specific configuration options (see below). | `D2SnapOptions` |
 
 > Ratios outside of `[0, 1]` (or not of type `number`) throw a `RangeError`.
+
+``` ts
+await d2Snap(html, 0.5, 0.5, 0.5);        // specific ratios
+await d2Snap(html, { r: 0.5 });           // equivalent: ratios object
+await d2Snap(html, { r: 0.5, rT: 0 });    // all at 0.5, except text (no reduction)
+await d2Snap(html, { rE: 0.8 });          // only elements (rA = rT = 0)
+```
+
+> `r` applies one value to all three ratios, which differ in kind: a relative ratio for `rE` and `rT`, but an absolute score threshold for `rA`.
 
 > With `rT = 0`, all sentences are kept, but text is still re-joined at the sentence level: whitespace and line breaks between sentences are normalised (also within `PRE` and `TEXTAREA` elements).
 
@@ -689,6 +708,8 @@ import type { D2SnapOptions, D2SnapResult } from "@webfuse-com/d2snap";
 | `D2SnapOptions` | Options of `d2Snap()` and `adaptiveD2Snap()` (passed partially). |
 | `D2SnapResult` | Result of `d2Snap()`. |
 | `AdaptiveD2SnapResult` | Result of `adaptiveD2Snap()`. |
+| `D2SnapRatios` | Downsampling ratios object of `d2Snap()`. |
+| `D2SnapArgs` | Argument forms of `d2Snap()` following the DOM (e.g., to pass all forms through a wrapper). |
 | `NormalizeDOMOptions` | Options of `normalizeDOM()` (passed partially). |
 | `NormalizeDOMResult` | Result of `normalizeDOM()`. |
 | `AttributeScoring` | Attribute scores (`attributeScores` option). |

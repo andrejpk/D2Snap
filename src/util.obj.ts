@@ -5,6 +5,9 @@ export function deepMerge<T1 extends object, T2 extends object>(target: T1, sour
 		const targetValue = result[key as keyof T1 & keyof T2];
 		const sourceValue = source[key];
 
+		// Undefined means not provided (keeps the target value); null is a value
+		if(sourceValue === undefined) continue;
+
 		if (
 			targetValue !== null
             && sourceValue !== null

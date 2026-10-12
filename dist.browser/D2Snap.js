@@ -1581,21 +1581,14 @@
   }
   function postProcessDOM(domRoot, options, isActionableElement) {
     if (options.filterEmptyElements) {
-      let hasRemovedElement;
-      do {
-        hasRemovedElement = false;
-        traverseDom(
-          domRoot,
-          1 /* SHOW_ELEMENT */,
-          (elementNode) => {
-            if (isActionableElement(elementNode)) return;
-            if (isVoidElement(elementNode.tagName)) return;
-            if (elementNode.children.length || elementNode.textContent.trim().length) return;
-            elementNode.remove();
-            hasRemovedElement = true;
-          }
-        );
-      } while (hasRemovedElement);
+      const elementNodes = [...domRoot.getElementsByTagName("*")];
+      for (let i = elementNodes.length - 1; i >= 0; i--) {
+        const elementNode = elementNodes[i];
+        if (isActionableElement(elementNode)) continue;
+        if (isVoidElement(elementNode.tagName)) continue;
+        if (elementNode.children.length || (elementNode.textContent ?? "").trim().length) continue;
+        elementNode.remove();
+      }
     }
     if (options.minify) {
       minifyDOM(domRoot);
@@ -1619,6 +1612,7 @@
     for (const key of Object.keys(source)) {
       const targetValue = result[key];
       const sourceValue = source[key];
+      if (sourceValue === void 0) continue;
       if (targetValue !== null && sourceValue !== null && typeof targetValue === "object" && typeof sourceValue === "object" && !Array.isArray(targetValue) && !Array.isArray(sourceValue)) {
         result[key] = deepMerge(
           targetValue,
@@ -1986,7 +1980,7 @@
     return false;
   }
   function elementHasNoTextContent(elementNode) {
-    return !hasRenderedText(elementNode) && ![...elementNode.querySelectorAll("img[alt]")].some((image) => !!resolveAttributeAsString2(image, "alt"));
+    return !hasRenderedText(elementNode) && ![...elementNode.getElementsByTagName("img")].some((image) => !!resolveAttributeAsString2(image, "alt"));
   }
   function resolveAttributeAsString2(elementNode, attributeName) {
     return (elementNode.getAttribute(attributeName) ?? "").trim();
@@ -2080,7 +2074,7 @@
     return false;
   }
   function elementHasNoTextContent2(elementNode) {
-    return !hasRenderedText2(elementNode) && ![...elementNode.querySelectorAll("img[alt]")].some((image) => !!resolveAttributeAsString3(image, "alt"));
+    return !hasRenderedText2(elementNode) && ![...elementNode.getElementsByTagName("img")].some((image) => !!resolveAttributeAsString3(image, "alt"));
   }
   function resolveAttributeAsString3(elementNode, attributeName) {
     return (elementNode.getAttribute(attributeName) ?? "").trim();
@@ -2494,6 +2488,27 @@
       throw new RangeError(`Parameter ${name} expects value in [0, 1], got ${value}`);
     }
   }
+  function resolveD2SnapArgs(args) {
+    const [ratiosOrRE, optionsOrRA] = args;
+    if (typeof ratiosOrRE === "object" && ratiosOrRE !== null) {
+      const ratios = ratiosOrRE;
+      ratios.r !== void 0 && validateUnitParameter("r", ratios.r);
+      const r = ratios.r ?? 0;
+      return {
+        rE: ratios.rE ?? r,
+        rA: ratios.rA ?? r,
+        rT: ratios.rT ?? r,
+        options: optionsOrRA ?? {}
+      };
+    }
+    const [rE, rA, rT, options] = args;
+    return {
+      rE,
+      rA,
+      rT,
+      options: options ?? {}
+    };
+  }
   function defineNonEnumerableProperty(obj, prop, value) {
     Object.defineProperty(obj, prop, {
       value,
@@ -2570,7 +2585,8 @@
       }
     };
   }
-  function d2Snap(dom, rE, rA, rT, options = {}) {
+  function d2Snap(dom, ...args) {
+    const { rE, rA, rT, options } = resolveD2SnapArgs(args);
     validateUnitParameter("rE", rE);
     validateUnitParameter("rA", rA);
     validateUnitParameter("rT", rT);
@@ -2619,13 +2635,22 @@
       }
       sourceElement.parentNode?.removeChild(sourceElement);
     }
+    let contextualFragmentRange = null;
+    let createTextNode = null;
     function snapElementTextFormattingNode(document3, elementNode) {
       if (optionsWithDefaults.skip?.markdown) return;
       if (elementNode.nodeType !== 1 /* ELEMENT_NODE */) return;
       if (_isActionableElement(elementNode)) return;
       if (!_isTextElement(elementNode)) return;
+      contextualFragmentRange ??= document3.createRange();
+      createTextNode ??= document3.createTextNode.bind(document3);
       const markdown = turndown.translate(elementNode.outerHTML);
-      const markdownNodesFragment = document3.createRange().createContextualFragment(markdown);
+      if (!/[<&\r\0]/.test(markdown)) {
+        const replacingNodes2 = markdown ? [createTextNode(markdown)] : [];
+        elementNode.replaceWith(...[createTextNode(" "), ...replacingNodes2, createTextNode(" ")]);
+        return replacingNodes2;
+      }
+      const markdownNodesFragment = contextualFragmentRange.createContextualFragment(markdown);
       const unwrapColonTaggedElements = (parent) => {
         for (const child of [...parent.childNodes]) {
           if (child.nodeType !== 1 /* ELEMENT_NODE */) continue;
@@ -2639,7 +2664,7 @@
       };
       unwrapColonTaggedElements(markdownNodesFragment);
       const replacingNodes = [...markdownNodesFragment.childNodes];
-      elementNode.replaceWith(...[document3.createTextNode(" "), ...replacingNodes, document3.createTextNode(" ")]);
+      elementNode.replaceWith(...[createTextNode(" "), ...replacingNodes, createTextNode(" ")]);
       const sourceTagName = elementNode.tagName.toLowerCase();
       return replacingNodes.filter((n) => n.nodeType !== 1 /* ELEMENT_NODE */ || n.tagName.toLowerCase() !== sourceTagName);
     }
@@ -2834,11 +2859,11 @@
   async function d2Snap2(domOrString, ...args) {
     return d2Snap(await ensureDOM(domOrString), ...args);
   }
-  async function normalizeDOM2(domOrString, ...args) {
-    return normalizeDOM(await ensureDOM(domOrString), ...args);
-  }
   async function adaptiveD2Snap2(domOrString, ...args) {
     return adaptiveD2Snap(d2Snap, await ensureDOM(domOrString), ...args);
+  }
+  async function normalizeDOM2(domOrString, ...args) {
+    return normalizeDOM(await ensureDOM(domOrString), ...args);
   }
 
   // src/api.browser.ts

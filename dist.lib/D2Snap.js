@@ -15,6 +15,27 @@ function validateUnitParameter(name, value) {
     throw new RangeError(`Parameter ${name} expects value in [0, 1], got ${value}`);
   }
 }
+function resolveD2SnapArgs(args) {
+  const [ratiosOrRE, optionsOrRA] = args;
+  if (typeof ratiosOrRE === "object" && ratiosOrRE !== null) {
+    const ratios = ratiosOrRE;
+    ratios.r !== void 0 && validateUnitParameter("r", ratios.r);
+    const r = ratios.r ?? 0;
+    return {
+      rE: ratios.rE ?? r,
+      rA: ratios.rA ?? r,
+      rT: ratios.rT ?? r,
+      options: optionsOrRA ?? {}
+    };
+  }
+  const [rE, rA, rT, options] = args;
+  return {
+    rE,
+    rA,
+    rT,
+    options: options ?? {}
+  };
+}
 function defineNonEnumerableProperty(obj, prop, value) {
   Object.defineProperty(obj, prop, {
     value,
@@ -91,7 +112,8 @@ function normalizeDOM(dom, options = {}) {
     }
   };
 }
-function d2Snap(dom, rE, rA, rT, options = {}) {
+function d2Snap(dom, ...args) {
+  const { rE, rA, rT, options } = resolveD2SnapArgs(args);
   validateUnitParameter("rE", rE);
   validateUnitParameter("rA", rA);
   validateUnitParameter("rT", rT);
@@ -140,13 +162,22 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
     }
     sourceElement.parentNode?.removeChild(sourceElement);
   }
+  let contextualFragmentRange = null;
+  let createTextNode = null;
   function snapElementTextFormattingNode(document2, elementNode) {
     if (optionsWithDefaults.skip?.markdown) return;
     if (elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
     if (_isActionableElement(elementNode)) return;
     if (!_isTextElement(elementNode)) return;
+    contextualFragmentRange ??= document2.createRange();
+    createTextNode ??= document2.createTextNode.bind(document2);
     const markdown = turndown.translate(elementNode.outerHTML);
-    const markdownNodesFragment = document2.createRange().createContextualFragment(markdown);
+    if (!/[<&\r\0]/.test(markdown)) {
+      const replacingNodes2 = markdown ? [createTextNode(markdown)] : [];
+      elementNode.replaceWith(...[createTextNode(" "), ...replacingNodes2, createTextNode(" ")]);
+      return replacingNodes2;
+    }
+    const markdownNodesFragment = contextualFragmentRange.createContextualFragment(markdown);
     const unwrapColonTaggedElements = (parent) => {
       for (const child of [...parent.childNodes]) {
         if (child.nodeType !== NodeType.ELEMENT_NODE) continue;
@@ -160,7 +191,7 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
     };
     unwrapColonTaggedElements(markdownNodesFragment);
     const replacingNodes = [...markdownNodesFragment.childNodes];
-    elementNode.replaceWith(...[document2.createTextNode(" "), ...replacingNodes, document2.createTextNode(" ")]);
+    elementNode.replaceWith(...[createTextNode(" "), ...replacingNodes, createTextNode(" ")]);
     const sourceTagName = elementNode.tagName.toLowerCase();
     return replacingNodes.filter((n) => n.nodeType !== NodeType.ELEMENT_NODE || n.tagName.toLowerCase() !== sourceTagName);
   }
@@ -293,5 +324,6 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
 export {
   d2Snap,
   getAttributeScore,
-  normalizeDOM
+  normalizeDOM,
+  resolveD2SnapArgs
 };
