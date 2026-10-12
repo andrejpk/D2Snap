@@ -7,6 +7,7 @@ import filterEmptyImages from "./normalizer.filterEmptyImages.js";
 import iconClassesToImg from "./normalizer.iconClassesToImg.js";
 import labelAttributesToContent from "./normalizer.labelAttributesToContent.js";
 import svgToImg from "./normalizer.svgToImg.js";
+import uniqueIDs from "./normalizer.unique-ids.js";
 
 
 export {
@@ -17,11 +18,13 @@ export {
 	filterEmptyImages,
 	iconClassesToImg,
 	labelAttributesToContent,
-	svgToImg
+	svgToImg,
+	uniqueIDs
 };
 
 
 // STRICT ORDER MATTERS
+// Opt-in: uniqueIDs
 
 export const DEFAULT_NORMALIZERS: NodeNormalizerFn[] = [
 	filterComments,

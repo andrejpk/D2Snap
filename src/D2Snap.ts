@@ -6,6 +6,7 @@ import {
 	type D2SnapResult,
 	type DOM,
 	type ElementClassifierFn,
+	type NodeNormalizerFn,
 	type ElementWithDepth,
 	type SentenceRankerFn,
 	type TextNode
@@ -15,14 +16,14 @@ import { CONFIG } from "./var.CONFIG.js";
 import {
 	DEFAULT_ATTRIBUTE_SCORES
 } from "./var.DEFAULTS_ATTRIBUTE_SCORES.js";
-import { DEFAULT_NORMALIZERS } from "./normalizers.js";
 import { resolveDocument, resolveRoot, traverseDom } from "./util.dom.js";
-import { isInlineElement, isVoidElement } from "./util.html.js";
+import { isVoidElement } from "./util.html.js";
 import { postProcessDOM, postProcessHTML, preProcessDOM } from "./D2Snap.processing.js";
 import { deepMerge } from "./util.obj.js";
 import { transformWithRanking } from "./util.text.js";
-import isActionableElement from "./classifier.actionable-element.js";
-import isTextElement from "./classifier.text-formatting-element.js";
+import isActionableElement from "./classifier.isActionableElement.js";
+import isTextElement from "./classifier.isTextElement.js";
+import { DEFAULT_NORMALIZERS, uniqueIDs } from "./normalizers.js";
 
 
 const WHITESPACE_REGEX: RegExp = /^\s$/;
@@ -101,7 +102,7 @@ export function d2Snap(
 		filterEmptyElements: true,
 		minify: true,
 		normalizers: DEFAULT_NORMALIZERS,
-		shadowDOM: false,
+		shadowDOM: true,
 		sentenceRanker: rankSentences,
 		skip: {
 			markdown: false,
@@ -245,23 +246,6 @@ export function d2Snap(
 	let t0: number;
 	const timings: D2SnapResult["meta"]["timings"] = {};
 
-	if(optionsWithDefaults.uniqueIDs) {
-		let i: number = 0;
-		traverseDom<Node>(
-			rootElement,
-			NodeFilter.SHOW_ELEMENT,
-			(node: Node) => {
-				const elementNode = node as Element;
-
-				if(isInlineElement(elementNode.tagName) && isVoidElement(elementNode.tagName)) return;
-
-				elementNode.setAttribute(CONFIG.uniqueAttributeName, i.toString());
-
-				i++;
-			}
-		);
-	}
-
 	// Clone
 	t0 = t();
 	const inertDoc: Document = document.implementation.createHTMLDocument("");
@@ -288,11 +272,17 @@ export function d2Snap(
 		: rootElement;
 	timings.clone = t() - t0;
 
+	// Unique IDs shortcut: last normalizer, unless explicitly placed.
+	const normalizers: NodeNormalizerFn[] = [ optionsWithDefaults.normalizers ].flat();
+	optionsWithDefaults.uniqueIDs
+		&& !normalizers.includes(uniqueIDs)
+		&& normalizers.push(uniqueIDs);
+
 	// Pre-proces
 	t0 = t();
 	preProcessDOM(virtualDOM, liveDOM, inertDoc, {
 		classifiers: optionsWithDefaults.classifiers,
-		normalizers: optionsWithDefaults.normalizers,
+		normalizers,
 		shadowDOM: optionsWithDefaults.shadowDOM
 	});
 	timings.preProcessing = t() - t0;

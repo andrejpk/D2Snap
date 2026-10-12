@@ -37,7 +37,8 @@ export {
 	filterEmptyImages,
 	iconClassesToImg,
 	labelAttributesToContent,
-	svgToImg
+	svgToImg,
+	uniqueIDs
 } from "./normalizers.js";
 
 
