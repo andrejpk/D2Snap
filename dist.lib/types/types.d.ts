@@ -8,8 +8,8 @@ export type TextNode = Node & {
 };
 export type DOM = Document | Element;
 export type ElementClassifierFn<T> = (element: T) => boolean;
-export type NodeNormalizerFn = (virtualNode: Node, liveNode: Node, context: NormalizerContext) => void;
 export type SentenceRankerFn = (sentences: string[]) => string[];
+export type NodeNormalizerFn = (virtualNode: Node, liveNode: Node, context: NormalizerContext) => void;
 export interface NormalizerContext {
     classifiers: D2SnapOptions["classifiers"];
     document: Document;
@@ -35,12 +35,12 @@ export interface D2SnapOptions {
     debug: boolean;
     filterEmptyElements: boolean;
     normalizers: readonly NodeNormalizerFn[];
+    /** Downsample text per element (direct text nodes as one text, across child elements) rather than per text node. */
+    prose: boolean;
     /** One ranker, or null for no ranking (leading sentences are kept). */
     sentenceRanker: SentenceRankerFn | null;
-    skip: {
-        markdown: boolean;
-        textRank: boolean;
-    };
+    /** Translate text formatting elements (classifiers.textFormattingElement) to Markdown. */
+    markdown: boolean;
     minify: boolean;
     shadowDOM: boolean;
     uniqueIDs: boolean;

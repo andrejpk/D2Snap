@@ -66,11 +66,11 @@
 		rE: document.querySelector("input[name='downsampling-rE']"),
 		rA: document.querySelector("input[name='downsampling-rA']"),
 		rT: document.querySelector("input[name='downsampling-rT']"),
-		normalizers: document.querySelector("input[name='downsampling-normalizers']"),
-		uniqueIDs: document.querySelector("input[name='downsampling-unique-ids']"),
 		markdown: document.querySelector("input[name='downsampling-markdown']"),
+		normalizers: document.querySelector("input[name='downsampling-normalizers']"),
+		prose: document.querySelector("input[name='downsampling-prose']"),
 		textRanker: document.querySelector("input[name='downsampling-text-ranker']"),
-		filterEmptyElements: document.querySelector("input[name='downsampling-empty-elements']")
+		uniqueIDs: document.querySelector("input[name='downsampling-unique-ids']")
 	};
 
 	// Text formatting elements count as actionables (preserved as HTML)
@@ -165,6 +165,10 @@
 			.join("\n");
 	}
 
+	const state = {
+		originalSize: 0
+	};
+
 	function updateMeta(meta) {
 		for(const [key, value] of Object.entries(meta)) {
 			const span = metaElements[key];
@@ -175,19 +179,17 @@
 		}
 	}
 
-	let originalSize = 0;
-
 	function updateSizeMeta() {
 		const textarea = outputTabs.querySelector(".tabs-body > .active textarea");
 
-		if(!textarea || !originalSize) return;
+		if(!textarea || !state.originalSize) return;
 
 		const size = textarea.value.length;
 
 		updateMeta({
 			tokenEstimate: formatNumber(Math.round(size / 4)),
-			sizeRatio: Math.round(size / originalSize * 100),
-			originalSize: formatBytes(originalSize),
+			sizeRatio: Math.round(size / state.originalSize * 100),
+			originalSize: formatBytes(state.originalSize),
 			snapshotSize: formatBytes(size)
 		});
 	}
@@ -211,15 +213,18 @@
 		updateSizeMeta();
 	}
 
-	function createFrameDocument(html) {
-		return `<meta http-equiv="Content-Security-Policy" content="${FRAME_CONTENT_SECURITY_POLICY}">${html}`;
-	}
-
 	function renderResultFrames(htmlInput, result) {
-		if(htmlInput) {
+		const createFrameDocument = html => {
+			return `
+				<meta http-equiv="Content-Security-Policy" content="${FRAME_CONTENT_SECURITY_POLICY}">
+				${html}
+			`;
+		};
+
+		if(htmlInput !== null) {
 			inputFrame.srcdoc = createFrameDocument(htmlInput);
 		}
-		if(result) {
+		if(result !== null) {
 			outputFrame.srcdoc = createFrameDocument(result.outerHTML);
 		}
 	}
@@ -235,18 +240,17 @@
 		const rT = parseFloat(downsamplingInputs.rT.value);
 		const options = {
 			debug: true,
-			minify: false,	// Input is normalized (minified, formatted) upon paste
+			minify: false,	// Input is minified and formatted upon paste
+			filterEmptyElements: downsamplingInputs.normalizers.checked,
+			markdown: downsamplingInputs.markdown.checked,
+			prose: downsamplingInputs.prose.checked,
+			uniqueIDs: downsamplingInputs.uniqueIDs.checked,
 			normalizers: downsamplingInputs.normalizers.checked
 				? D2Snap.defaults.NORMALIZERS
 				: [],
-			uniqueIDs: downsamplingInputs.uniqueIDs.checked,
 			sentenceRanker: downsamplingInputs.textRanker.checked
 				? D2Snap.defaults.SENTENCE_RANKER
-				: null,	// No ranking: leading sentences are kept
-			filterEmptyElements: downsamplingInputs.filterEmptyElements.checked,
-			skip: {
-				markdown: !downsamplingInputs.markdown.checked
-			}
+				: null
 		};
 
 		const start = performance.now();
@@ -278,7 +282,7 @@
 		renderResult3D(htmlInput, result.html);
 		renderResultFrames(null, resultPreservedTextFormattingElements);
 
-		originalSize = result.meta.originalSize;
+		state.originalSize = result.meta.originalSize;
 
 		updateMeta({
 			duration: formatNumber(Math.round(duration))
@@ -367,6 +371,7 @@
 				button
 					.addEventListener("click", () => {
 						textarea.value = "";
+
 						textarea.focus();
 						textarea.dispatchEvent(new Event("input"));
 					});
@@ -381,18 +386,16 @@
 			{
 				debug: true,
 				filterEmptyElements: false,
+				markdown: false,
 				normalizers: [],
-				sentenceRanker: null,
-				skip: {
-					markdown: true
-				}
+				sentenceRanker: null
 			}
 		);
 
 		textareaHTMLInput.value = html;
 	}
 
-	function setupDownsamplingParams() {
+	function setupRatioSliders() {
 		const isDeferredUpdate = input => {
 			return (input.type === "range" && textareaHTMLInput.value.length > LARGE_INPUT_SIZE_THRESHOLD);
 		};
@@ -433,6 +436,24 @@
 
 			updateState();
 		});
+	}
+
+	function setupRatioButtons() {
+		document.querySelectorAll("button[data-ratios]")
+			.forEach(button => {
+				button
+					.addEventListener("click", () => {
+						const value = parseFloat(button.dataset.ratios);
+
+						[ downsamplingInputs.rE, downsamplingInputs.rA, downsamplingInputs.rT ]
+							.forEach(input => {
+								input.value = value;
+								parameterOutputs[input.name].textContent = value.toFixed(1);
+							});
+
+						updateState();
+					});
+			});
 	}
 
 	function setupSnapshots() {
@@ -560,7 +581,8 @@
 	setupSizeMeta();
 	setupCopyButtons();
 	setupClearButtons();
-	setupDownsamplingParams();
+	setupRatioSliders();
+	setupRatioButtons();
 	setupSnapshots();
 	setupRelief();
 	setupResizers();

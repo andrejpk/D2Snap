@@ -6,10 +6,11 @@ import { isVoidElement } from "./util.html.js";
 import { postProcessDOM, postProcessHTML, preProcessDOM } from "./processing.js";
 import { deepMerge } from "./util.obj.js";
 import { getByteLength, transformWithRanking } from "./util.text.js";
+import { snapTextBlocks } from "./D2Snap.text.js";
 import * as defaults from "./constants.defaults.js";
 import { assignUniqueIds } from "./options.normalizers.js";
-const WHITESPACE_REGEX = /^\s$/;
 const COLON_SCHEME_TAG_REGEX = /^[a-z][a-z0-9+.-]*:(?![a-z_][a-z0-9_.-]*$)/i;
+const WHITESPACE_REGEX = /^\s$/;
 function validateUnitParameter(name, value) {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
     throw new RangeError(`Parameter ${name} expects value in [0, 1], got ${value}`);
@@ -126,14 +127,12 @@ function d2Snap(dom, ...args) {
     classifiers: defaults.CLASSIFIERS,
     debug: false,
     filterEmptyElements: true,
+    prose: false,
     minify: true,
     normalizers: defaults.NORMALIZERS,
     shadowDOM: false,
     sentenceRanker: defaults.SENTENCE_RANKER,
-    skip: {
-      markdown: false,
-      textRank: false
-    },
+    markdown: true,
     uniqueIDs: false
   }, options);
   const attributeScores = new Map(
@@ -141,7 +140,7 @@ function d2Snap(dom, ...args) {
   );
   const _isActionableElement = optionsWithDefaults.classifiers.actionableElement;
   const _isTextElement = optionsWithDefaults.classifiers.textFormattingElement;
-  const _sentenceRanker = optionsWithDefaults.sentenceRanker === null || optionsWithDefaults.skip?.textRank && !options.sentenceRanker ? (sentences) => sentences : optionsWithDefaults.sentenceRanker;
+  const _sentenceRanker = optionsWithDefaults.sentenceRanker ?? ((sentences) => sentences);
   const turndown = new Turndown([_isActionableElement]);
   function snapElementContainerNode(elementNode, rE2) {
     const considerContainerElement = (elementNode2) => {
@@ -162,10 +161,22 @@ function d2Snap(dom, ...args) {
     }
     sourceElement.parentNode?.removeChild(sourceElement);
   }
+  function snapTextNode(textNode, rT2) {
+    if (textNode.nodeType !== NodeType.TEXT_NODE) return;
+    const text = textNode.textContent;
+    if (!(text ?? "").trim().length) return;
+    const leadingSpace = WHITESPACE_REGEX.test(text.charAt(0)) ? " " : "";
+    const trailingSpace = WHITESPACE_REGEX.test(text.charAt(text.length - 1)) ? " " : "";
+    textNode.textContent = [
+      leadingSpace,
+      transformWithRanking(text, 1 - rT2, _sentenceRanker, true),
+      trailingSpace
+    ].join("");
+  }
   let contextualFragmentRange = null;
   let createTextNode = null;
   function snapElementTextFormattingNode(document2, elementNode) {
-    if (optionsWithDefaults.skip?.markdown) return;
+    if (!optionsWithDefaults.markdown) return;
     if (elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
     if (_isActionableElement(elementNode)) return;
     if (!_isTextElement(elementNode)) return;
@@ -194,18 +205,6 @@ function d2Snap(dom, ...args) {
     elementNode.replaceWith(...[createTextNode(" "), ...replacingNodes, createTextNode(" ")]);
     const sourceTagName = elementNode.tagName.toLowerCase();
     return replacingNodes.filter((n) => n.nodeType !== NodeType.ELEMENT_NODE || n.tagName.toLowerCase() !== sourceTagName);
-  }
-  function snapTextNode(textNode, rT2) {
-    if (textNode.nodeType !== NodeType.TEXT_NODE) return;
-    const text = textNode.textContent;
-    if (!(text ?? "").trim().length) return;
-    const leadingSpace = WHITESPACE_REGEX.test(text.charAt(0)) ? " " : "";
-    const trailingSpace = WHITESPACE_REGEX.test(text.charAt(text.length - 1)) ? " " : "";
-    textNode.textContent = [
-      leadingSpace,
-      transformWithRanking(text, 1 - rT2, _sentenceRanker, true),
-      trailingSpace
-    ].join("");
   }
   function snapAttributeNode(elementNode, rA2) {
     if (elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
@@ -240,7 +239,7 @@ function d2Snap(dom, ...args) {
   );
   timings.writeDepth = t() - t0;
   t0 = t();
-  traverseDom(
+  optionsWithDefaults.prose ? snapTextBlocks(virtualDOM, 1 - rT, _sentenceRanker, _isActionableElement) : traverseDom(
     virtualDOM,
     NodeFilter.SHOW_TEXT,
     (node) => snapTextNode(node, rT)
@@ -312,9 +311,7 @@ function d2Snap(dom, ...args) {
       },
       get sizeRatio() {
         const snapshotSize = getByteLength(getHTML("innerHTML"));
-        if (originalSize === 0) {
-          return snapshotSize === 0 ? 1 : Infinity;
-        }
+        if (originalSize === 0) return snapshotSize === 0 ? 1 : Infinity;
         return snapshotSize / originalSize;
       },
       get tokenEstimate() {

@@ -300,6 +300,10 @@ hr {
     gap: var(--space-m);
 }
 
+.flex--between {
+    justify-content: space-between;
+}
+
 .flex--s {
     gap: var(--space-s);
 }
@@ -342,7 +346,7 @@ hr {
     border-radius: 0.3em;
     background-color: var(--color-primary);
     color: var(--color-fg-dark);
-    font-size: 1em;
+    font-size: 0.85em;
     cursor: pointer;
 }
 
@@ -351,11 +355,20 @@ hr {
 }
 
 .button--s {
-    font-size: 0.85em;
+    font-size: 0.7em;
+}
+
+.button--l {
+    font-size: 1em;
 }
 
 .button--light {
     background-color: var(--color-fg);
+}
+
+.button--dark {
+    background-color: var(--color-bg-dim);
+    color: var(--color-fg);
 }
 
 .button[data-snapshot]::before {
@@ -389,6 +402,7 @@ hr {
     cursor: pointer;
 }
 
+.tabs-header button:hover,
 .tabs-header button.active {
     background-color: var(--color-bg-dim);
 }

@@ -14,10 +14,10 @@
         <header>
             <h1>D2Snap &hairsp; | &hairsp; Demo</h1>
             <nav>
-                <a class="button button--light" target="_blank" href="https://github.com/webfuse-com/D2Snap">
+                <a class="button button--l button--light" target="_blank" href="https://github.com/webfuse-com/D2Snap">
                     <img src="./res/github-logo.webp" alt="GitHub">
                 </a>
-                <a class="button button--light" target="_blank" href="https://arxiv.org/abs/2508.04412">
+                <a class="button button--l button--light" target="_blank" href="https://arxiv.org/abs/2508.04412">
                     <img src="./res/arxiv-logo.webp" alt="arXiv">
                 </a>
             </nav>
@@ -26,7 +26,7 @@
             <section class="panel content">
                 <div class="textarea-wrapper">
                     <textarea name="html-input" placeholder="HTML input"></textarea>
-                    <button type="button" class="button button--s clear-button" data-clear="html-input">Clear</button>
+                    <button type="button" class="button clear-button" data-clear="html-input">Clear</button>
                 </div>
                 <div class="card">
                     <form name="downsampling-params">
@@ -55,33 +55,19 @@
                                 <input type="range" min="0" max="1" step="0.1" value="0" name="downsampling-rA">
                                 <output for="downsampling-rA"></output>
                             </label>
-                            <table>
-                                <tr>
-                                    <td>
-                                        <label for="downsampling-markdown"
-                                            title="Whether to translate HTML text formatting to Markdown">
-                                            Markdown
-                                        </label>
-                                    </td>
-                                    <td>
-                                        <input type="checkbox" name="downsampling-markdown">
-                                    </td>
-                                </tr>
-                            </table>
+                            <div class="flex flex--xs flex--between">
+                                <button type="button" class="button button--s" data-ratios="0"
+                                    title="Set all ratios to 0 (minimum downsampling)">
+                                    Min
+                                </button>
+                                <button type="button" class="button button--s" data-ratios="1"
+                                    title="Set all ratios to 1 (maximum downsampling)">
+                                    Max
+                                </button>
+                            </div>
                         </section>
                         <section>
                             <table>
-                                <tr>
-                                    <td>
-                                        <label for="downsampling-normalizers"
-                                            title="Whether to pre-process the DOM with the default normalizers (filtering, normalisation) before downsampling">
-                                            Normalizers
-                                        </label>
-                                    </td>
-                                    <td>
-                                        <input type="checkbox" name="downsampling-normalizers" checked>
-                                    </td>
-                                </tr>
                                 <tr>
                                     <td>
                                         <label for="downsampling-text-ranker" title="Whether to rank text at the sentence level before truncation (TextRank) – otherwise, the leading sentences are kept">
@@ -94,13 +80,35 @@
                                 </tr>
                                 <tr>
                                     <td>
-                                        <label for="downsampling-empty-elements"
-                                            title="Whether to remove elements without contents after downsampling (void and actionable elements are kept)">
-                                            Filter Empty
+                                        <label for="downsampling-prose"
+                                            title="Whether to group consecutive sibling text nodes for text downsampling">
+                                            Prose
                                         </label>
                                     </td>
                                     <td>
-                                        <input type="checkbox" name="downsampling-empty-elements" checked>
+                                        <input type="checkbox" name="downsampling-prose" checked>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <label for="downsampling-markdown"
+                                            title="Whether to translate HTML text formatting to Markdown">
+                                            Markdown
+                                        </label>
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" name="downsampling-markdown">
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <label for="downsampling-normalizers"
+                                            title="Whether to pre-process the DOM with the default normalizers (filtering, normalisation) before downsampling">
+                                            Normalizers
+                                        </label>
+                                    </td>
+                                    <td>
+                                        <input type="checkbox" name="downsampling-normalizers">
                                     </td>
                                 </tr>
                                 <tr>
@@ -117,13 +125,17 @@
                             </table>
                         </section>
                         <section>
-                            <button class="button button--s" type="button" data-snapshot="google"
+                            <button class="button button--dark" type="button" data-snapshot="google"
                                 title="Example: snapshot from https://google.com">
-                                Google
+                                google.com
                             </button>
-                            <button class="button button--s" type="button" data-snapshot="wikipedia"
+                            <button class="button button--dark" type="button" data-snapshot="wikipedia"
                                 title="Example: snapshot from https://wikipedia.org/wiki/Downsampling_(signal_processing)">
-                                Wikipedia
+                                wikipedia.org
+                            </button>
+                            <button class="button button--dark" type="button" data-snapshot="cnn"
+                                title="Example: snapshot from https://edition.cnn.com">
+                                cnn.com
                             </button>
                         </section>
                     </form>
@@ -135,7 +147,7 @@
                     <div class="tabs-body">
                         <div class="content">
                             <textarea name="html-output" readonly></textarea>
-                            <button type="button" class="button button--s copy-button" data-copy="html-output">Copy</button>
+                            <button type="button" class="button copy-button" data-copy="html-output">Copy</button>
                         </div>
                         <div class="content">
                             <textarea name="a11y-tree-output" readonly></textarea>
@@ -143,11 +155,15 @@
                         </div>
                         <div class="content">
                             <textarea name="index-json-output" readonly></textarea>
-                            <button type="button" class="button button--s copy-button" data-copy="index-json-output">Copy</button>
+                            <button type="button" class="button copy-button" data-copy="index-json-output">Copy</button>
                         </div>
                         <div class="content">
                             <textarea name="index-output" readonly></textarea>
-                            <button type="button" class="button button--s copy-button" data-copy="index-output">Copy</button>
+                            <button type="button" class="button copy-button" data-copy="index-output">Copy</button>
+                        </div>
+                        <div class="content">
+                            <textarea name="index-output" readonly></textarea>
+                            <button type="button" class="button copy-button" data-copy="index-output">Copy</button>
                         </div>
                     </div>
                     <div class="card">
@@ -260,5 +276,6 @@
         </script>
         <script defer src="demo.snapshot.google.js"></script>
         <script defer src="demo.snapshot.wikipedia.js"></script>
+        <script defer src="demo.snapshot.cnn.js"></script>
     </body>
 </html>

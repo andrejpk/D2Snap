@@ -21,11 +21,11 @@ import { isVoidElement } from "./util.html.js";
 import { postProcessDOM, postProcessHTML, preProcessDOM } from "./processing.js";
 import { deepMerge } from "./util.obj.js";
 import { getByteLength, transformWithRanking } from "./util.text.js";
+import { snapTextBlocks } from "./D2Snap.text.js";
 import * as defaults from "./constants.defaults.js";
 import { assignUniqueIds } from "./options.normalizers.js";
 
 
-const WHITESPACE_REGEX: RegExp = /^\s$/;
 // Markdown autolinks re-parse (see snapElementTextFormattingNode) into bogus
 // elements tagged with the URL scheme — `<https://x>` -> `HTTPS:` (parser stops
 // at `/`), `<mailto:x@y.com>` -> `MAILTO:X@Y.COM` (no `/`, whole URI folds in).
@@ -33,6 +33,8 @@ const WHITESPACE_REGEX: RegExp = /^\s$/;
 // negative lookahead spares real namespaced custom elements (`FB:LIKE`), whose
 // tail after `:` is a valid NCName.
 const COLON_SCHEME_TAG_REGEX: RegExp = /^[a-z][a-z0-9+.-]*:(?![a-z_][a-z0-9_.-]*$)/i;
+
+const WHITESPACE_REGEX: RegExp = /^\s$/;
 
 function validateUnitParameter(name: string, value: number) {
 	if(!Number.isFinite(value) || value < 0 || value > 1) {
@@ -214,14 +216,12 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 		classifiers: defaults.CLASSIFIERS,
 		debug: false,
 		filterEmptyElements: true,
+		prose: false,
 		minify: true,
 		normalizers: defaults.NORMALIZERS,
 		shadowDOM: false,
 		sentenceRanker: defaults.SENTENCE_RANKER,
-		skip: {
-			markdown: false,
-			textRank: false
-		},
+		markdown: true,
 		uniqueIDs: false
 	}, options);
 	const attributeScores: Map<string, number> = new Map(
@@ -231,13 +231,9 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 
 	const _isActionableElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.actionableElement;
 	const _isTextElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.textFormattingElement;
-	// No ranking keeps the leading sentences: null ranker, or skipped ranking (a given sentence ranker wins).
-	const _sentenceRanker: SentenceRankerFn = (
-		(optionsWithDefaults.sentenceRanker === null)
-		|| (optionsWithDefaults.skip?.textRank && !options.sentenceRanker)
-	)
-		? (sentences: string[]) => sentences
-		: optionsWithDefaults.sentenceRanker;
+	// No ranker (null) keeps the leading sentences
+	const _sentenceRanker: SentenceRankerFn = optionsWithDefaults.sentenceRanker
+		?? ((sentences: string[]) => sentences);
 
 	const turndown: Turndown = new Turndown([ _isActionableElement ]);
 
@@ -271,13 +267,30 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 			?.removeChild(sourceElement);
 	}
 
+	// Per text node (default)
+	function snapTextNode(textNode: TextNode, rT: number) {
+		if(textNode.nodeType !== NodeType.TEXT_NODE) return;
+
+		const text: string | null = textNode.textContent;
+		if(!(text ?? "").trim().length) return;
+
+		const leadingSpace: string = WHITESPACE_REGEX.test(text.charAt(0)) ? " " : "";
+		const trailingSpace: string = WHITESPACE_REGEX.test(text.charAt(text.length - 1)) ? " " : "";
+
+		textNode.textContent = [
+			leadingSpace,
+			transformWithRanking(text, (1 - rT), _sentenceRanker, true),
+			trailingSpace
+		].join("");
+	}
+
 	// Document methods are bound once: property access on a jsdom document runs a named-property
 	// lookup that re-walks the whole document after mutations (quadratic across elements).
 	let contextualFragmentRange: Range | null = null;
 	let createTextNode: ((data: string) => Text) | null = null;
 
 	function snapElementTextFormattingNode(document: Document, elementNode: HTMLElement) {
-		if(optionsWithDefaults.skip?.markdown) return;
+		if(!optionsWithDefaults.markdown) return;
 		if(elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
 		if(_isActionableElement(elementNode)) return;
 		if(!_isTextElement(elementNode)) return;
@@ -339,21 +352,6 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 			));
 	}
 
-	function snapTextNode(textNode: TextNode, rT: number) {
-		if(textNode.nodeType !== NodeType.TEXT_NODE) return;
-
-		const text: string | null = textNode.textContent;
-		if(!(text ?? "").trim().length) return;
-
-		const leadingSpace: string = WHITESPACE_REGEX.test(text.charAt(0)) ? " " : "";
-		const trailingSpace: string = WHITESPACE_REGEX.test(text.charAt(text.length - 1)) ? " " : "";
-
-		textNode.textContent = [
-			leadingSpace,
-			transformWithRanking(text, (1 - rT), _sentenceRanker, true),
-			trailingSpace
-		].join("");
-	}
 
 	function snapAttributeNode(elementNode: HTMLElement, rA: number) {
 		if(elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
@@ -403,13 +401,15 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 	);
 	timings.writeDepth = t() - t0;
 
-	// Text nodes
+	// Text nodes: per text node (default), or per element (prose: sibling text nodes form one text)
 	t0 = t();
-	traverseDom<TextNode>(
-		virtualDOM,
-		NodeFilter.SHOW_TEXT,
-		(node: TextNode) => snapTextNode(node, rT)
-	);
+	optionsWithDefaults.prose
+		? snapTextBlocks(virtualDOM, (1 - rT), _sentenceRanker, _isActionableElement)
+		: traverseDom<TextNode>(
+			virtualDOM,
+			NodeFilter.SHOW_TEXT,
+			(node: TextNode) => snapTextNode(node, rT)
+		);
 	timings.textNodes = t() - t0;
 
 	// Text formatting element nodes
@@ -504,9 +504,8 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 			get sizeRatio() {
 				const snapshotSize: number = getByteLength(getHTML("innerHTML"));
 
-				if(originalSize === 0) {
-					return (snapshotSize === 0) ? 1 : Infinity;
-				}
+				// Empty input: an empty snapshot is unchanged (ratio 1, like any unchanged input)
+				if(originalSize === 0) return (snapshotSize === 0) ? 1 : Infinity;
 
 				return snapshotSize / originalSize;
 			},

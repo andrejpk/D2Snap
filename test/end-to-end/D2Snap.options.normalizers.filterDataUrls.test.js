@@ -9,9 +9,7 @@ const HAMBURGER_HTML = await readTestFile("hamburger/hamburger.options.normalize
 await test("Take DOM snapshot (options.normalizers; filterDataUrls)", async () => {
     const snapshotFilter = await d2Snap(HAMBURGER_HTML, 0.5, 0, 1, {
         debug: true,
-        skip: {
-            markdown: true
-        }
+        markdown: false
     });
 
     await writeActual("hamburger/hamburger.options.normalizers.filterDataUrls", snapshotFilter.html);
@@ -33,9 +31,7 @@ await test("Take DOM snapshot (options.normalizers; filterDataUrls)", async () =
         debug: true,
         normalizers: defaults.NORMALIZERS
             .filter(normalizer => normalizer !== defaults.normalizers.filterDataUrls),
-        skip: {
-            markdown: true
-        }
+        markdown: false
     });
 
     assertIn(
