@@ -103,8 +103,8 @@ const ATTRIBUTE_SCORES = Object.freeze({
   "*": 0
 });
 const CLASSIFIERS = Object.freeze({
-  actionableElements: isActionableElement,
-  textElements: isTextElement
+  actionableElement: isActionableElement,
+  textFormattingElement: isTextElement
 });
 const NORMALIZERS = Object.freeze([
   filterComments,

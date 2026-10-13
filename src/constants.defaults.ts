@@ -118,8 +118,8 @@ export const ATTRIBUTE_SCORES = Object.freeze({
 });
 
 export const CLASSIFIERS: Readonly<D2SnapOptions["classifiers"]> = Object.freeze({
-	actionableElements: isActionableElement,
-	textElements: isTextElement
+	actionableElement: isActionableElement,
+	textFormattingElement: isTextElement
 });
 
 // STRICT ORDER MATTERS

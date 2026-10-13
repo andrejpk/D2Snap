@@ -46,8 +46,8 @@ await test("Verify default callbacks", () => {
     assertEqual(
         CLASSIFIERS,
         {
-            actionableElements: isActionableElement,
-            textElements: isTextElement
+            actionableElement: isActionableElement,
+            textFormattingElement: isTextElement
         },
         "Invalid default classifiers"
     );
@@ -138,7 +138,7 @@ await test("Verify default settings", () => {
 await test("Freeze defaults", () => {
     for(const mutate of [
         () => NORMALIZERS.push(assignUniqueIds),
-        () => { CLASSIFIERS.actionableElements = () => true; },
+        () => { CLASSIFIERS.actionableElement = () => true; },
         () => { ATTRIBUTE_SCORES.href = 0; },
         () => CLASSIFIER_SETTINGS.isActionableElement.tagNames.push("DIV"),
         () => CLASSIFIER_SETTINGS.isActionableElement.roleAttributeValues.push("none"),

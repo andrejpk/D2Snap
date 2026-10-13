@@ -1656,6 +1656,140 @@
     return TEXT_ENCODER.encode(text).length;
   }
 
+  // src/D2Snap.text.ts
+  var SENTENCE_BOUNDARY_REGEX = /(?<=\p{Sentence_Terminal})\s+/gu;
+  function intersect(range, start, end) {
+    const intersectionStart = Math.max(range.start, start);
+    const intersectionEnd = Math.min(range.end, end);
+    return intersectionStart < intersectionEnd ? { start: intersectionStart, end: intersectionEnd } : null;
+  }
+  function segmentSentences(text) {
+    const sentences = [];
+    const pushSentence = (start2, end) => {
+      const segment = text.slice(start2, end);
+      const leading = segment.length - segment.trimStart().length;
+      const trailing = segment.length - segment.trimEnd().length;
+      start2 + leading < end - trailing && sentences.push({ start: start2 + leading, end: end - trailing, segmentStart: start2, segmentEnd: end });
+    };
+    let start = 0;
+    for (const boundary of text.matchAll(SENTENCE_BOUNDARY_REGEX)) {
+      pushSentence(start, boundary.index);
+      start = boundary.index + boundary[0].length;
+    }
+    pushSentence(start, text.length);
+    return sentences;
+  }
+  function resolveSentenceIndex(sentences, position) {
+    for (let i = 0; i < sentences.length; i++) {
+      if (position <= sentences[i].segmentEnd) return i;
+    }
+    return -1;
+  }
+  function rankSentenceIndices(sentences, ratio, sentenceRanker, prioritisedIndices = /* @__PURE__ */ new Set()) {
+    const k = Math.min(Math.max(Math.ceil(sentences.length * ratio), 1), sentences.length);
+    if (k >= sentences.length) return sentences.map((_, i) => i);
+    const rankGroup = (indices) => {
+      if (!indices.length) return [];
+      const indicesBySentence = /* @__PURE__ */ new Map();
+      indices.forEach((index) => {
+        indicesBySentence.set(sentences[index], [...indicesBySentence.get(sentences[index]) ?? [], index]);
+      });
+      const rankedIndices = [];
+      for (const sentence of sentenceRanker(indices.map((index) => sentences[index]))) {
+        const index = indicesBySentence.get(sentence)?.shift();
+        index !== void 0 && rankedIndices.push(index);
+      }
+      return rankedIndices;
+    };
+    const allIndices = sentences.map((_, i) => i);
+    return [
+      ...rankGroup(allIndices.filter((index) => prioritisedIndices.has(index))),
+      ...rankGroup(allIndices.filter((index) => !prioritisedIndices.has(index)))
+    ].slice(0, k).sort((a, b) => a - b);
+  }
+  function snapTextSiblings(textNodes, siblingElements, ratio, sentenceRanker, isActionableElement) {
+    const offsets = [];
+    let text = "";
+    for (const textNode of textNodes) {
+      offsets.push({ start: text.length, end: text.length + textNode.data.length });
+      text += textNode.data;
+    }
+    const sentences = segmentSentences(text);
+    if (!sentences.length) return;
+    const sentenceIndexByElement = new Map(siblingElements.map((sibling) => [sibling.element, resolveSentenceIndex(sentences, sibling.position)]));
+    const actionableSentenceIndices = new Set(siblingElements.filter((sibling) => isActionableElement(sibling.element)).map((sibling) => sentenceIndexByElement.get(sibling.element)).filter((index) => index >= 0));
+    const visibleSentences = sentences.map((sentence, sentenceIndex) => {
+      let visibleText = "";
+      let cursor = sentence.start;
+      for (const sibling of siblingElements) {
+        if (sentenceIndexByElement.get(sibling.element) !== sentenceIndex) continue;
+        const position = Math.min(Math.max(sibling.position, sentence.start), sentence.end);
+        visibleText += text.slice(cursor, position) + (sibling.element.textContent ?? "");
+        cursor = position;
+      }
+      return (visibleText + text.slice(cursor, sentence.end)).replace(/\s+/g, " ").trim();
+    });
+    const keptIndices = rankSentenceIndices(
+      visibleSentences,
+      ratio,
+      sentenceRanker,
+      actionableSentenceIndices
+    );
+    if (keptIndices.length === sentences.length) return;
+    const keptRanges = [];
+    keptIndices.forEach((index, i) => {
+      const isAdjacent = i > 0 && keptIndices[i - 1] === index - 1;
+      isAdjacent ? keptRanges[keptRanges.length - 1].end = sentences[index].end : keptRanges.push({ ...sentences[index] });
+    });
+    textNodes.forEach((textNode, i) => {
+      const { start, end } = offsets[i];
+      const parts = keptRanges.map((range) => intersect(range, start, end)).filter((part) => !!part);
+      if (!parts.length) {
+        textNode.data.length && (textNode.data = " ");
+        return;
+      }
+      const keptText = parts.map((part) => text.slice(part.start, part.end)).join(" ");
+      const leadingSpace = parts[0].start > start ? " " : "";
+      const trailingSpace = parts[parts.length - 1].end < end ? " " : "";
+      textNode.data = `${leadingSpace}${keptText}${trailingSpace}`;
+    });
+    const keptIndexSet = new Set(keptIndices);
+    for (const { element } of siblingElements) {
+      const sentenceIndex = sentenceIndexByElement.get(element);
+      if (sentenceIndex < 0 || keptIndexSet.has(sentenceIndex)) continue;
+      if (isActionableElement(element)) continue;
+      element.remove();
+    }
+    for (const textNode of textNodes) {
+      const previousNode = textNode.previousSibling;
+      if (previousNode?.nodeType !== 3 /* TEXT_NODE */) continue;
+      if (!/\s$/.test(previousNode.data) || !/^\s/.test(textNode.data)) continue;
+      textNode.data = textNode.data.trimStart();
+    }
+  }
+  function snapTextBlocks(root2, ratio, sentenceRanker, isActionableElement) {
+    const elements = [root2];
+    while (elements.length) {
+      const element = elements.pop();
+      if (element !== root2 && !element.parentNode) continue;
+      const textNodes = [];
+      const siblingElements = [];
+      let position = 0;
+      for (let child = element.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3 /* TEXT_NODE */) {
+          textNodes.push(child);
+          position += child.data.length;
+        } else if (child.nodeType === 1 /* ELEMENT_NODE */) {
+          siblingElements.push({ element: child, position });
+        }
+      }
+      textNodes.some((textNode) => textNode.data.trim()) && snapTextSiblings(textNodes, siblingElements, ratio, sentenceRanker, isActionableElement);
+      for (let i = siblingElements.length - 1; i >= 0; i--) {
+        elements.push(siblingElements[i].element);
+      }
+    }
+  }
+
   // src/constants.defaults.ts
   var constants_defaults_exports = {};
   __export(constants_defaults_exports, {
@@ -2050,7 +2184,7 @@
       }
       if (iconfontsInClass) {
         const alt = resolveLabel2(liveElement, document2, labelAttributeNames) ?? iconfontsInClass;
-        if (!context.classifiers.actionableElements(liveElement)) {
+        if (!context.classifiers.actionableElement(liveElement)) {
           replaceElementByImage(virtualElement, document2, alt);
         } else {
           virtualElement.prepend(createImage(document2, alt));
@@ -2466,8 +2600,8 @@
     "*": 0
   });
   var CLASSIFIERS = Object.freeze({
-    actionableElements: is_actionable_element_default,
-    textElements: is_text_element_default
+    actionableElement: is_actionable_element_default,
+    textFormattingElement: is_text_element_default
   });
   var NORMALIZERS = Object.freeze([
     filter_comments_default,
@@ -2500,8 +2634,8 @@
   });
 
   // src/D2Snap.ts
-  var WHITESPACE_REGEX = /^\s$/;
   var COLON_SCHEME_TAG_REGEX = /^[a-z][a-z0-9+.-]*:(?![a-z_][a-z0-9_.-]*$)/i;
+  var WHITESPACE_REGEX = /^\s$/;
   function validateUnitParameter(name, value) {
     if (!Number.isFinite(value) || value < 0 || value > 1) {
       throw new RangeError(`Parameter ${name} expects value in [0, 1], got ${value}`);
@@ -2618,6 +2752,7 @@
       classifiers: CLASSIFIERS,
       debug: false,
       filterEmptyElements: true,
+      prose: false,
       minify: true,
       normalizers: NORMALIZERS,
       shadowDOM: false,
@@ -2631,8 +2766,8 @@
     const attributeScores = new Map(
       Object.entries(optionsWithDefaults.attributeScores).map((entry) => [entry[0].toLowerCase(), entry[1]])
     );
-    const _isActionableElement = optionsWithDefaults.classifiers.actionableElements;
-    const _isTextElement = optionsWithDefaults.classifiers.textElements;
+    const _isActionableElement = optionsWithDefaults.classifiers.actionableElement;
+    const _isTextElement = optionsWithDefaults.classifiers.textFormattingElement;
     const _sentenceRanker = optionsWithDefaults.sentenceRanker === null || optionsWithDefaults.skip?.textRank && !options.sentenceRanker ? (sentences) => sentences : optionsWithDefaults.sentenceRanker;
     const turndown = new Turndown([_isActionableElement]);
     function snapElementContainerNode(elementNode, rE2) {
@@ -2653,6 +2788,18 @@
         targetElement.insertBefore(sourceElement.childNodes[0], sourceElement);
       }
       sourceElement.parentNode?.removeChild(sourceElement);
+    }
+    function snapTextNode(textNode, rT2) {
+      if (textNode.nodeType !== 3 /* TEXT_NODE */) return;
+      const text = textNode.textContent;
+      if (!(text ?? "").trim().length) return;
+      const leadingSpace = WHITESPACE_REGEX.test(text.charAt(0)) ? " " : "";
+      const trailingSpace = WHITESPACE_REGEX.test(text.charAt(text.length - 1)) ? " " : "";
+      textNode.textContent = [
+        leadingSpace,
+        transformWithRanking(text, 1 - rT2, _sentenceRanker, true),
+        trailingSpace
+      ].join("");
     }
     let contextualFragmentRange = null;
     let createTextNode = null;
@@ -2687,18 +2834,6 @@
       const sourceTagName = elementNode.tagName.toLowerCase();
       return replacingNodes.filter((n) => n.nodeType !== 1 /* ELEMENT_NODE */ || n.tagName.toLowerCase() !== sourceTagName);
     }
-    function snapTextNode(textNode, rT2) {
-      if (textNode.nodeType !== 3 /* TEXT_NODE */) return;
-      const text = textNode.textContent;
-      if (!(text ?? "").trim().length) return;
-      const leadingSpace = WHITESPACE_REGEX.test(text.charAt(0)) ? " " : "";
-      const trailingSpace = WHITESPACE_REGEX.test(text.charAt(text.length - 1)) ? " " : "";
-      textNode.textContent = [
-        leadingSpace,
-        transformWithRanking(text, 1 - rT2, _sentenceRanker, true),
-        trailingSpace
-      ].join("");
-    }
     function snapAttributeNode(elementNode, rA2) {
       if (elementNode.nodeType !== 1 /* ELEMENT_NODE */) return;
       for (const attr of Array.from(elementNode.attributes)) {
@@ -2732,7 +2867,7 @@
     );
     timings.writeDepth = t() - t0;
     t0 = t();
-    traverseDom(
+    optionsWithDefaults.prose ? snapTextBlocks(virtualDOM, 1 - rT, _sentenceRanker, _isActionableElement) : traverseDom(
       virtualDOM,
       4 /* SHOW_TEXT */,
       (node) => snapTextNode(node, rT)
@@ -2804,9 +2939,7 @@
         },
         get sizeRatio() {
           const snapshotSize = getByteLength(getHTML("innerHTML"));
-          if (originalSize === 0) {
-            return snapshotSize === 0 ? 1 : Infinity;
-          }
+          if (originalSize === 0) return snapshotSize === 0 ? 1 : Infinity;
           return snapshotSize / originalSize;
         },
         get tokenEstimate() {

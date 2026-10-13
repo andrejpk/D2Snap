@@ -917,6 +917,45 @@ await test("Selector queries do not grow with the page", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Text was downsampled per text node, but child elements (links, emphasis, …)
+// split prose into many text nodes, each keeping at least one sentence (or
+// fragment): at rT = 1, a Wikipedia paragraph kept 68 % of its text, mostly as
+// sentence fragments. With the prose option, the direct text nodes of an
+// element form one text (ranked across child elements), keeping complete
+// sentences; elements of dropped sentences are removed (except actionables,
+// whose sentences rank first).
+// ---------------------------------------------------------------------------
+await test("Prose with child elements is downsampled as one text (prose option)", async () => {
+    const sentences = [
+        `The FIR filter output is a dot product, where the <i>h</i>[•] sequence is the impulse response, and <i>K</i> is its length.`,
+        `<i>x</i>[•] represents the input sequence being downsampled.`,
+        `In a general purpose processor, after computing <i>y</i>[<i>n</i>], the easiest way to compute <i>y</i>[<i>n</i>+1] is to advance the starting index in the <i>x</i>[•] array by <i>M</i>, and recompute the dot product.`,
+        `In the case <i>M</i>=2, <i>h</i>[•] can be designed as a <a href="/wiki/Half-band_filter">half-band filter</a>, where almost half of the coefficients are zero.`,
+        `Impulse response coefficients taken at intervals of <i>M</i> form a subsequence, and there are <i>M</i> such subsequences multiplexed together.`,
+        `The dot product is the sum of the dot products of each subsequence with the corresponding samples of the <i>x</i>[•] sequence.`,
+        `Thus <i>M</i> low-order FIR filters are each filtering one of <i>M</i> multiplexed <i>phases</i> of the input stream.`,
+        `In other words, the input stream is demultiplexed and sent through a bank of M filters whose outputs are summed.`,
+        `When implemented that way, it is called a <b>polyphase</b> filter.`
+    ];
+    const html = `<main><section><p>${sentences.join(" ")}</p></section></main>`;
+    const plainSentences = sentences.map(sentence => new JSDOM(sentence).window.document.body.textContent);
+    const textOf = dom => dom.textContent.replace(/\s+/g, " ").trim();
+
+    const options = { prose: true, skip: { markdown: true } };
+    const fullText = textOf((await d2Snap(html, 0, 0, 0, options)).dom);
+    const snapshot = await d2Snap(html, 0, 0, 1, options);
+    const keptText = textOf(snapshot.dom);
+
+    assertLess(keptText.length / fullText.length, 0.15, `Text not downsampled (${Math.round(100 * keptText.length / fullText.length)} % kept at rT = 1)`);
+    assertTrue(
+        plainSentences.some(sentence => keptText.includes(sentence)),
+        `Kept text is no complete input sentence: ${keptText}`
+    );
+    assertEqual(snapshot.dom.querySelectorAll("a").length, 1, "Actionable element removed");
+});
+
+
+// ---------------------------------------------------------------------------
 // Unique IDs continued from a counter that was initialised from the live
 // document only once: an ID the page assigned later (e.g., to an inserted
 // element) was handed out again in the next snapshot, violating uniqueness.

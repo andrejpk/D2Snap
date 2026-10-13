@@ -10,10 +10,10 @@ await test("Take DOM snapshot (options.classifiers)", async () => {
     const snapshot = await d2Snap(PIZZA_HTML, 0.7, 1, 1, {
         debug: true,
         classifiers: {
-            actionableElements: elementNode => defaults.classifiers.isActionableElement(elementNode, {
+            actionableElement: elementNode => defaults.classifiers.isActionableElement(elementNode, {
                 tagNames: [ "li", "STRONG" ]
             }),
-            textElements: elementNode => defaults.classifiers.isTextElement(elementNode, {
+            textFormattingElement: elementNode => defaults.classifiers.isTextElement(elementNode, {
                 tagNames: [ "p", "B" ]
             })
         }

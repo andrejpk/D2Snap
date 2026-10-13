@@ -101,8 +101,8 @@ await test("Deep merge two objects (undefined keeps target)", async () => {
             {
                 debug: false,
                 classifiers: {
-                    actionableElements: "default",
-                    textElements: "default"
+                    actionableElement: "default",
+                    textFormattingElement: "default"
                 },
                 sentenceRanker: "default"
             },
@@ -115,8 +115,8 @@ await test("Deep merge two objects (undefined keeps target)", async () => {
         {
             debug: false,
             classifiers: {
-                actionableElements: "default",
-                textElements: "default"
+                actionableElement: "default",
+                textFormattingElement: "default"
             },
             sentenceRanker: null
         },
@@ -124,10 +124,11 @@ await test("Deep merge two objects (undefined keeps target)", async () => {
     );
     assertEqual(
         deepMerge(
-            { classifiers: { actionableElements: "default", textElements: "default" } },
-            { classifiers: { actionableElements: "custom", textElements: undefined } }
+            { classifiers: { actionableElement: "default", textFormattingElement: "default" } },
+            { classifiers: { actionableElement: "custom", textFormattingElement: undefined } }
         ),
-        { classifiers: { actionableElements: "custom", textElements: "default" } },
+        { classifiers: { actionableElement: "custom", textFormattingElement: "default" } },
         "Invalid deep-merged objects (nested undefined keeps target)"
     );
 });
+

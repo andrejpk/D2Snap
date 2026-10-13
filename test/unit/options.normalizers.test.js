@@ -300,7 +300,7 @@ await test("Normalize: icon classes to images (classifiers context)", () => {
     normalizeIconClassesToImgs(span, span, {
         classifiers: {
             ...CLASSIFIERS,
-            actionableElements: element => element.tagName === "SPAN"
+            actionableElement: element => element.tagName === "SPAN"
         },
         document: dom.document
     }, {
