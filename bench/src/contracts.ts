@@ -3,6 +3,9 @@ import { z } from "zod";
 export const idSchema = z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/);
 const text = z.string().trim().min(1);
 const revision = z.number().int().positive();
+const fieldSchema = z.object({
+  label: text, value: text, valueType: z.literal("person-name").optional(),
+}).strict();
 
 export const scopeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("page") }).strict(),
@@ -32,12 +35,12 @@ export const evidenceRuleSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("record"),
     scope: z.object({ kind: z.literal("row"), anchor: text }).strict(),
-    fields: z.array(z.object({ label: text, value: text }).strict()).min(1),
+    fields: z.array(fieldSchema).min(1),
   }).strict(),
   z.object({
     kind: z.literal("properties"),
     scope: scopeSchema,
-    fields: z.array(z.object({ label: text, value: text }).strict()).min(1),
+    fields: z.array(fieldSchema).min(1),
   }).strict(),
   z.object({
     kind: z.literal("control"),
@@ -50,6 +53,7 @@ export const evidenceRuleSchema = z.discriminatedUnion("kind", [
     value: z.string().optional(),
     states: controlStatesSchema.optional(),
     description: text.optional(),
+    choices: z.array(text).min(1).optional(),
   }).strict(),
 ]);
 
@@ -60,6 +64,13 @@ export const evidenceAlternativeSchema = z.object({
   for (const [index, rule] of alternative.allOf.entries()) {
     if (rule.kind === "record" || rule.kind === "properties") {
       checkUnique(rule.fields.map(field => field.label), context, ["allOf", index, "fields"]);
+    }
+    if (rule.kind === "control" && rule.choices) {
+      checkUnique(rule.choices, context, ["allOf", index, "choices"]);
+      if (rule.role !== "combobox") context.addIssue({
+        code: z.ZodIssueCode.custom, message: "Choice lists require a combobox rule.",
+        path: ["allOf", index, "choices"],
+      });
     }
   }
 });

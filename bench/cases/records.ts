@@ -35,7 +35,7 @@ const recordRequirements: Requirement[] = [
         { label: "Supplier", value: "Acme Supplies" },
         { label: "Amount", value: "$1,200.00" },
         { label: "Status", value: "Overdue" },
-        { label: "Owner", value: "Morgan Lee" },
+        { label: "Owner", value: "Morgan Lee", valueType: "person-name" },
       ],
     }),
     alternative("card", {
@@ -44,24 +44,29 @@ const recordRequirements: Requirement[] = [
         { label: "Supplier", value: "Acme Supplies" },
         { label: "Amount", value: "$1,200.00" },
         { label: "Status", value: "Overdue" },
-        { label: "Owner", value: "Morgan Lee" },
+        { label: "Owner", value: "Morgan Lee", valueType: "person-name" },
       ],
     }),
   ),
   goal("search", "control", "Find requests using a query and retain the current query.",
-    ...controls("search", { scope: page, roles: ["textbox", "searchbox"], names: ["Search requests", "Find requests"], value: "" }),
+    ...controls("search", { scope: page, roles: ["textbox", "searchbox"], names: ["Search requests", "Find requests"], value: "", states: { disabled: false } }),
   ),
   goal("status-filter", "control", "Restrict requests by status and retain the current selection.",
-    ...controls("select", { scope: page, roles: ["combobox"], names: ["Status", "Filter by status"], value: "All statuses" }),
+    ...controls("select", { scope: page, roles: ["combobox"], names: ["Status", "Filter by status"], value: "All statuses",
+      states: { disabled: false }, choices: ["All statuses", "Pending", "Overdue", "Approved"] }),
     alternative("all-statuses-option", {
       kind: "control", scope: { kind: "region", name: "Filter by status" },
-      role: "radio", name: "All statuses", states: { checked: true },
-    }),
+      role: "radio", name: "All statuses", states: { checked: true, disabled: false },
+    }, ...["Pending", "Overdue", "Approved"].map(name => ({
+      kind: "control" as const, scope: { kind: "region" as const, name: "Filter by status" },
+      role: "radio" as const, name, states: { checked: false, disabled: false },
+    }))),
   ),
 ];
 
 export const records = defineCase({
   ...base,
+  revision: 3,
   id: "records",
   title: "Browse purchase requests",
   task: "Find overdue request RQ-1042 and identify the actions available for that request.",

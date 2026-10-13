@@ -111,7 +111,7 @@ bytes.
    controls, grouping, layout, slots and native/library semantics may differ.
 5. Declare a `CellRegistration` for each implemented case/stack/variant.
    The matrix validator rejects unknown axes, duplicate implementations, adapter path escapes and incomplete
-   state lists. A future runner must additionally verify that modules exist
+   state lists. The runner must additionally verify that modules exist
    and their runtime checks pass.
 6. Verify the raw captured input satisfies the oracle before interpreting a
    D2Snap failure. Distinguish acquisition loss from compression loss.
@@ -123,7 +123,7 @@ Use `workspace:*` for local packages; keep incompatible external versions
 isolated rather than forcing all stacks onto one version.
 
 The harness is the `bench` project itself. Schemas, case files, scoring, cache,
-and the future runner need no additional package manifests or builds. Keep
+and the runner need no additional package manifests or builds. Keep
 their module/test boundaries and content-addressed stages intact; package
 consolidation does not change the measurement or invalidation protocol.
 
@@ -160,9 +160,11 @@ not a D2Snap regression. Identical input bytes may still reuse a transform.
 
 ## Phase boundaries
 
-Phase 1 provides contracts, shared data, scorer controls, matrix validation and
-cache primitives. It does not provide a generator, a discoverable agent skill,
-a Playwright capture adapter, or a full cached benchmark command.
+Foundations provide contracts, shared data, scorer controls, matrix validation
+and cache primitives. The small runnable POC adds one records/React/icon-toolbar
+adapter, production capture/replay, current-worktree D2Snap transforms, and a
+cached HTML/JSON report through `pnpm --dir bench demo`. It does not provide a
+generator, a discoverable authoring skill, arbitrary cells, or ref comparisons.
 
 The planned authoring skills will automate this workflow once the first real
 stack implementations establish a working template. Do not scaffold nine

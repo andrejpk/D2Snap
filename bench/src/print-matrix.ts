@@ -10,5 +10,6 @@ console.table(cases.map(uxCase => ({
   ])),
 })));
 
-console.log(`${matrix.length} planned implementation variants; ${matrix.reduce((total, cell) => total + cell.stateIds.length, 0)} state cases.`);
+console.log(`${matrix.length} implementation variants; ${matrix.reduce((total, cell) => total + cell.stateIds.length, 0)} state cases.`);
+console.log(`${matrix.filter(cell => cell.status === "registered").length} registered; ${matrix.filter(cell => cell.status === "planned").length} planned.`);
 console.log("Planned cells have no fixture app or capture adapter yet; registered does not imply validated.");

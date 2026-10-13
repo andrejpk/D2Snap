@@ -5,7 +5,7 @@ const chrome = `<nav>Overview Reports Help</nav>
 function table(mode: "browsing" | "overflow" | "inline" | "toolbar" | "popup"): string {
   return `${chrome}
     <label>Search requests <input value=""></label>
-    <label>Status <select><option selected>All statuses</option><option>Overdue</option></select></label>
+    <label>Status <select><option selected>All statuses</option><option>Overdue</option><option>Pending</option><option>Approved</option></select></label>
     <table id="requests">
       <thead><tr><th>Request</th><th>Supplier</th><th>Amount</th><th>Status</th><th>Owner</th><th>Actions</th></tr></thead>
       <tbody>
@@ -76,6 +76,8 @@ const cards = `${chrome}
   <section aria-label="Filter by status">
     <label><input type="radio" name="status" checked>All statuses</label>
     <label><input type="radio" name="status">Overdue</label>
+    <label><input type="radio" name="status">Pending</label>
+    <label><input type="radio" name="status">Approved</label>
   </section>
   <section aria-label="Request RQ-1041"><p>Amount: $2,400.00</p><button>View details</button></section>
   <section aria-label="Request RQ-1042">

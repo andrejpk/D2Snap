@@ -7,9 +7,10 @@ The contract is validated with the shared schema. **Input is used only for
 
 Results include `requirements` (`id`, `category`, `passed`, `verdict`, failure
 `reasons`, individual diagnostic `checks`, `alternatives`, and
-`matchedAlternatives`), `retention.content`,
+`matchedAlternatives`, `match`, `semanticPassed`, and `inferenceRules`), `retention.content`,
 `retention.control`, `retention.overall` (each with `numerator`, `denominator`,
-`fraction`), `fullFidelity`, `inputBytes`, `outputBytes`, `outputKB` (decimal
+`fraction`), `semanticRetention` (the same categories using strict evidence only),
+`fullFidelity`, `inputBytes`, `outputBytes`, `outputKB` (decimal
 1000), `sizeRatio`, and reader status/version. An empty category has
 `fraction: null`. Zero input has `sizeRatio: null` and
 `sizeRatioStatus: "zero-input"`, including when output is also empty.
@@ -27,7 +28,22 @@ different alternatives cannot be combined, and matching multiple alternatives
 does not inflate retention. Every variant uses the same goals and denominator.
 Alternative diagnostics record both passing and failing representations.
 
-## Versioned reader: `html-markdown-v3`
+`inspectEvidence(output, state, assessment)` additionally locates display-only
+nodes for an existing assessment. It uses the reader's scopes, roles, names, and
+stored passing alternatives. Unsuccessful goals may have context/candidate
+locations, but these are explicitly not matches. Its temporary
+`data-bench-view-node` attributes exist only in report previews: they are never
+injected into fixture captures, D2Snap input/output, or byte measurements.
+
+## Versioned reader: `html-markdown-v5`
+
+The primary score measures explicit or bounded inferred task evidence. Each goal
+records `match: explicit | inferred | none`; successful inferred checks identify
+their rules. `semanticRetention` separately evaluates the same contract using
+ordinary HTML/CommonMark parsing, exact values, and accessible names only.
+This is a deterministic usability proxy, not proof that an arbitrary agent will
+complete the task. No model is called, and inferred markup never changes output
+bytes or the saved source.
 
 The producer declares `format: "html"` for raw HTML, including the corpus's
 hand-authored controls and a future raw-DOM baseline. `format: "html-markdown"`
@@ -46,9 +62,12 @@ unaltered output bytes.
 - In `html-markdown` mode, pinned Marked 15 parses CommonMark plus GFM tables. Headings (ATX and setext),
   paragraphs, inline emphasis, entities, links, and embedded HTML controls are
   supported. Fenced/inline code is literal content, never a semantic control.
-  CommonMark HTML-block rules apply: Markdown inside a raw HTML block is not
-  recursively interpreted. Use Markdown blocks separated from raw HTML blocks,
-  or select declared `html` mode for complete HTML. There is no raw-substring fallback.
+  Additionally, the `hybrid-table` rule recognizes headered pipe tables in raw
+  HTML, including flattened newlines. A unique separator, nonempty unique
+  headers, consistent row widths and complete row boundaries are required.
+  Escaped pipes and inline HTML are preserved through tokenization; code samples
+  cannot become controls. Malformed/ambiguous runs are not reconstructed.
+  This is table-specific, not arbitrary recursive Markdown or a substring fallback.
 - jsdom parses inert HTML with **no scripts or external resources enabled**.
   Script, style, comment, template, noscript, embedded document, SVG, and canvas
   contents are excluded. Styles are consulted first for detectable hiding.
@@ -70,6 +89,16 @@ unaltered output bytes.
   in the target row through a unique output-local `aria-controls` reference to
   visible content. Missing or ambiguous associations fail; a matching action
   label somewhere else is not sufficient.
+  In v5, `selected-record-context` can alternatively establish the action group:
+  one uniquely identified row must be the sole selected row, corroborated by
+  `aria-selected` or a checked row-selection checkbox explicitly naming the
+  record. An immediately preceding `1 request/record/item selected` cue must
+  name that same record. Only the adjacent control-only group or consecutive
+  action siblings are eligible, even if toolbar markup has been removed.
+  Conflicting selections, multiple matching groups, disabled actions, and
+  explicit references to other existing targets fail. A dangling table reference
+  contributes no evidence; the independent selection and local cue must suffice.
+  Strict semantic retention still requires the original explicit association.
 - Text is a unique bounded phrase in visible text runs, retaining inline
   formatting equivalence but not concatenating independent blocks. `120`
   cannot match `1200` or `120.00`; `PR-120` cannot match `PR-120-2`.
@@ -78,6 +107,13 @@ unaltered output bytes.
 - Records require a semantic table/grid owner, one column header per requested
   label, and exactly one associated cell in the anchored row, with exact
   normalized cell value. Native HTML, ARIA grids, and parsed GFM tables work.
+  Fields explicitly typed `valueType: person-name` can additionally use
+  `person-name-initials`: two to four capital initials followed by a multiword
+  name must agree with that name's initials and the complete expected name.
+  This also applies to property values. It is an explicit display-normalization
+  policy, not a generic substring rule: literal names with the same prefix are
+  inherently indistinguishable and must not use this type if that interpretation
+  is inappropriate.
   Output-local `headers` IDREFs support reordered columns. Simple positional
   columns require equal row widths; sparse ARIA columns require explicit
   positive `aria-colindex` on the relevant header and cell. Implicit merged
@@ -88,6 +124,11 @@ unaltered output bytes.
   or unrelated facts fail. This is not arbitrary key/value layout inference.
 - Controls need a native or explicit ARIA semantic role, not merely visible
   text. Matching role/name candidates must be unique within the resolved scope.
+  The `adjacent-control-label` rule may name an otherwise unnamed native input,
+  select or textarea from immediate preceding text or a simple passive label/span.
+  The parent must contain exactly one visible control of that role. Labels are
+  bounded to 80 characters; conflicting names, explicit broken name references,
+  hidden labels and labels targeting another control cannot be overridden.
   Hidden, aria-hidden, inert, hidden-input, closed-details content, and detectable
   CSS display/visibility hiding cannot provide interactive evidence.
 - Native applicable disabled/required/checked states have meaningful defaults;
@@ -108,6 +149,11 @@ unaltered output bytes.
   one coherent displayed text run; conflicting `aria-valuetext` fails.
   Validation descriptions use accessible-description computation, including
   legitimately hidden IDREF targets; adjacent error text alone is insufficient.
+- A combobox rule may declare `choices`. Each required visible name must resolve
+  to exactly one enabled option in the native select, or one contained/uniquely
+  controlled visible ARIA listbox. Broken references, duplicates and disabled
+  options fail. Other UI paradigms can express the same choices as separate
+  control checks in one evidence alternative.
 
 ## Deliberate limits
 
@@ -118,8 +164,7 @@ occlusion. HTML parser recovery is deterministic, not an HTML conformance test.
 Raw D2Snap custom serialization beyond the grammar above needs a new documented
 reader version and tests, not a success-shaped fallback. Multi-select values,
 complex multi-level table headers and implicit spanning-table inference are not
-supported. Scopes and rules must be representable in the existing contracts;
-this package adds no schema fields.
+supported. Scopes and rules must be representable in the contracts.
 
 The reader caps output at 1,000,000 UTF-8 bytes, 20,000 elements, and 128 levels
 of nesting. Exceeding limits or a parsing failure yields reader status

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (() => {
+        const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+        const theme =
+          param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Purchase requests · Procurement workspace</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div id="client-error" role="alert" hidden></div>
+    <script>
+      (() => {
+        const showError = (message) => {
+          const alert = document.getElementById("client-error");
+          alert.hidden = false;
+          alert.textContent = "The workspace could not complete an operation. " + message;
+        };
+        window.addEventListener("error", (event) => {
+          showError(event.message || "An application asset failed to load. Please reload.");
+        }, true);
+        window.addEventListener("unhandledrejection", (event) => {
+          showError(event.reason instanceof Error ? event.reason.message : String(event.reason));
+        });
+      })();
+    </script>
+    <div id="root"><p class="loading">Loading procurement workspace…</p></div>
+    <noscript>This workspace needs JavaScript to browse and update requests.</noscript>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

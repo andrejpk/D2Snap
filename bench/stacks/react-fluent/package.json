@@ -1,0 +1,29 @@
+{
+  "name": "@perception-bench/react-fluent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node --experimental-strip-types --test tests/smoke.test.ts",
+    "test:browser": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts"
+  },
+  "dependencies": {
+    "@fluentui/react-components": "9.54.0",
+    "@perception-bench/scenarios": "workspace:*",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/react": "18.3.23",
+    "@types/react-dom": "18.3.7",
+    "playwright": "1.58.2",
+    "typescript": "6.0.3",
+    "vite": "7.3.1"
+  }
+}

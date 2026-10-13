@@ -1,0 +1,36 @@
+{
+  "name": "@perception-bench/angular-material-ag-grid",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "build": "ng build --configuration production --base-href /fixture/",
+    "typecheck": "ngc -p tsconfig.app.json --noEmit && tsc -p tsconfig.adapter.json --noEmit",
+    "test:smoke": "node --experimental-strip-types --test tests/records.test.ts"
+  },
+  "dependencies": {
+    "@angular/animations": "20.2.0",
+    "@angular/cdk": "20.2.0",
+    "@angular/common": "20.2.0",
+    "@angular/compiler": "20.2.0",
+    "@angular/core": "20.2.0",
+    "@angular/forms": "20.2.0",
+    "@angular/material": "20.2.0",
+    "@angular/platform-browser": "20.2.0",
+    "@perception-bench/scenarios": "workspace:*",
+    "ag-grid-angular": "34.1.0",
+    "ag-grid-community": "34.1.0",
+    "rxjs": "7.8.2",
+    "tslib": "2.8.1",
+    "zone.js": "0.15.1"
+  },
+  "devDependencies": {
+    "@angular/build": "20.2.0",
+    "@angular/cli": "20.2.0",
+    "@angular/compiler-cli": "20.2.0",
+    "@types/node": "24.13.3",
+    "playwright": "1.58.2",
+    "typescript": "5.9.2"
+  }
+}

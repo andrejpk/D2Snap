@@ -1,8 +1,8 @@
 # Perception Bench: research and POC design
 
-Status: phase-one foundations implemented on 2026-09-16; fixture apps and the
-end-to-end experiment runner remain planned. See README.md and AUTHORING.md for
-the concrete package layout and contributor workflow.
+Status: foundations plus a small runnable records/React/icon-toolbar slice
+implemented on 2026-09-16. The broader matrix and ref-comparison workflow remain
+planned. See README.md and AUTHORING.md for the concrete quick start and layout.
 Date: 2026-09-15.
 
 ## 1. Goal and boundaries
@@ -137,7 +137,7 @@ The user selected these stacks and page patterns on 2026-09-15.
 
 | Stack ID | Implementation |
 | --- | --- |
-| `react-shadcn` | React + shadcn/ui using pinned Radix primitives + Tailwind |
+| `react-shadcn` | React + shadcn/ui table adaptation and pinned Radix primitives; first slice uses Clawpilot CSS rather than Tailwind |
 | `angular-primeng` | Angular + PrimeNG |
 | `vue-vuetify` | Vue 3 + Vuetify |
 
@@ -324,6 +324,20 @@ Zod ecosystem where appropriate. The root package has `playwright`, not an
 explicit `@playwright/test` dependency; add a compatible pinned test-runner
 dependency during implementation, not as part of this documentation change.
 
+The first runnable slice deliberately uses Playwright's library directly with
+a standalone interactive HTML/JSON report. It covers one stack/case/variant, two states,
+four D2Snap profiles and two raw baselines. This avoids introducing Playwright
+Test configuration before the capture protocol is exercised. Its future report
+integration below remains a recommendation, not an implemented capability.
+
+The report embeds its client script, styles, screenshots, data, and sanitized
+rendered previews in one HTML file. It opens offline without a host or SPA
+router. Result inspection pairs raw/output views with goal-level match/context
+highlights; configurations have a separate read-only explorer. Richer rendering
+of Markdown nested in HTML is a display convenience, not a change to the
+evidence reader or measured bytes. Cache provenance is excluded from the
+performance table. Report-only rebuilding does not rerun benchmark stages.
+
 | Option | What it supplies | Decision |
 | --- | --- | --- |
 | Playwright Test | Browser fixtures, isolation, parameterized tests/projects, HTML/JSON reporting, attachments, traces, CI support [15] | Use for fixture validation, capture misses, and reportable case evaluation |
@@ -495,22 +509,29 @@ quality/size artifacts are reused.
 
 ## 8. Initial experiment set and acceptance
 
-Use four explicit diagnostic configurations, not claims of optimal settings:
+Use ten uniform reduction levels, consistent with `eval/eval_space`, not claims
+of optimal settings or fidelity levels. Higher numbers request more reduction:
 
 | Config | rE | rA | rT | Purpose |
 | --- | --- | --- | --- | --- |
-| `preprocess-only` | 0 | 0 | 0 | Expose default preprocessing; this is not raw DOM |
-| `balanced-probe` | 0.3 | 0.3 | 0.1 | Moderate diagnostic point |
-| `structure-heavy` | 0.9 | 0.3 | 0 | Isolate substantial container reduction |
-| `aggressive-probe` | 0.6 | 0.6 | 0.3 | Expose attribute/state and text losses |
+| `1.0` | 1.0 | 1.0 | 1.0 | Maximum requested reduction |
+| `0.9` | 0.9 | 0.9 | 0.9 | Uniform reduction |
+| `0.8` | 0.8 | 0.8 | 0.8 | Uniform reduction |
+| `0.7` | 0.7 | 0.7 | 0.7 | Uniform reduction |
+| `0.6` | 0.6 | 0.6 | 0.6 | Uniform reduction |
+| `0.5` | 0.5 | 0.5 | 0.5 | Uniform reduction |
+| `0.4` | 0.4 | 0.4 | 0.4 | Uniform reduction |
+| `0.3` | 0.3 | 0.3 | 0.3 | Uniform reduction |
+| `0.2` | 0.2 | 0.2 | 0.2 | Uniform reduction |
+| `0.1` | 0.1 | 0.1 | 0.1 | Light requested reduction |
 
 Materialize all other options explicitly from a documented baseline, using
 `debug: false` and no test-only ID injection. Include a separate raw-capture
 baseline, scored and measured with the same oracle. Native unit controls do
 not add a fourth framework app.
 
-Eighteen states by four configs gives 72 D2Snap results per artifact, plus
-18 reusable raw baselines. Two subject artifacts produce up to 144 transforms;
+Eighteen states by ten configs gives 180 D2Snap results per artifact, plus
+18 reusable raw baselines. Two subject artifacts produce up to 360 transforms;
 unchanged capture and identical transform content can be reused.
 
 Acceptance for the harness:
@@ -536,7 +557,7 @@ their tradeoffs rather than excluding them from the report.
 
 ## 9. Authoring skills and repository layout
 
-Phase-one layout, with future directories marked explicitly:
+Current layout, with future directories marked explicitly:
 
 ```text
 bench\
@@ -555,28 +576,45 @@ bench\
     print-matrix.ts    Matrix CLI
     evidence\          Output-only reader, scoring and exact-byte measurements
     cache\             Canonical stage identities, comparison pairing and store
-    runner\            Future: resolve/build/capture/transform/report orchestration
+    runner\            POC build, capture/replay, scoring, cache and HTML report
   tests\               Contracts, cases, evidence and cache tests
+  browser-tests\       Live-property capture and inert/repeatable replay tests
   packages\
     scenarios\         Public seeded domain data and fixed environment
-  stacks\              Future: one fixture app per stack, with case adapters
-  configs\             Future: runnable D2Snap configuration manifests
+  stacks\              Five records fixture apps; other UX implementations planned
+  configs\             Explicit POC D2Snap options and compression profiles
   skills\              Future: discoverable agent-authoring skill/templates
   playwright.config.ts Future: browser execution configuration
   .cache\              Ignored runtime artifacts
   reports\             Ignored generated reports
 ```
 
-One harness project owns schemas, cases, scoring, cache, and the future runner.
+One harness project owns schemas, cases, scoring, cache, and the runner.
 Cases remain separate files without a separate package. The browser-safe
 scenarios package and each future stack app retain their own dependency
 boundaries. `pnpm --dir bench check` exercises the foundation APIs and independent
 oracle controls through a single typecheck and test entry point.
 The cache store validates integrity, reuses deterministic results
-(including failed quality verdicts), and coordinates producers. It is not yet
-an end-to-end cached benchmark runner: callers must supply complete dependency
-manifests and effective configs. Source-ref materialization and automatic
-dependency-closure discovery remain future orchestration work.
+(including failed quality verdicts), and coordinates producers. The runnable
+slice supplies conservative whole-app/source dependency manifests and complete
+effective configs. Source-ref materialization and fine-grained dependency-closure
+discovery remain future orchestration work.
+
+`pnpm --dir bench demo` builds production fixture assets and a browser D2Snap
+bundle from the current worktree. Build/capture/transform/assessment stages are
+independently cached. Captures mirror browser-authoritative form properties and
+source CSS hiding into a body clone. Replay disables JavaScript and network,
+removes fixture scripts/handlers, and explicitly evaluates only the bundled
+subject. No runtime LLM or external inference service is involved.
+
+Playwright 1.58.2 and its Chromium revisions are pinned; the earlier attempt to
+download a newer revision timed out, so the POC uses this available stable
+revision explicitly, never a silent system-browser fallback. Runtime identity
+includes browser revision, OS/architecture, Node, and fixed render settings.
+An unchanged `demo --assert-cached` must perform zero fresh stages or browser
+launches. `demo --refresh` creates observations without replacing canonical
+results. Outputs and scores, not wall-clock latency or report timestamps, are
+the deterministic measurements.
 
 Keep fixture dependencies and runner tooling in a bench-local package/workspace
 boundary, isolated from the library's published dependencies. Reuse compatible

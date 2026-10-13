@@ -1,11 +1,11 @@
 import { Buffer } from "node:buffer";
 import { JSDOM } from "jsdom";
 import { computeAccessibleDescription, computeAccessibleName, getRole } from "dom-accessibility-api";
-import { marked } from "marked";
+import { evidenceDOM } from "./hybrid.ts";
 import { stateSchema } from "../contracts.ts";
 import type { CaseState, EvidenceRule, Requirement, Scope } from "../contracts.ts";
 
-export const READER_VERSION = "html-markdown-v3";
+export const READER_VERSION = "html-markdown-v5";
 export type OutputFormat = "html" | "html-markdown";
 export const READER_LIMITS = { outputBytes: 1_000_000, elements: 20_000, depth: 128 } as const;
 
@@ -13,6 +13,7 @@ export interface Check {
   code: string;
   passed: boolean;
   message: string;
+  inference?: string;
 }
 
 export interface RequirementAssessment {
@@ -24,6 +25,9 @@ export interface RequirementAssessment {
   checks: Check[];
   alternatives: AlternativeAssessment[];
   matchedAlternatives: string[];
+  semanticPassed: boolean;
+  match: "explicit" | "inferred" | "none";
+  inferenceRules: string[];
 }
 
 export interface AlternativeAssessment {
@@ -43,12 +47,111 @@ export interface Assessment {
   reader: { version: typeof READER_VERSION; format: OutputFormat; status: "ok" | "unsupported"; reasons: string[] };
   requirements: RequirementAssessment[];
   retention: { content: Retention; control: Retention; overall: Retention };
+  semanticRetention: { content: Retention; control: Retention; overall: Retention };
   fullFidelity: boolean;
   inputBytes: number;
   outputBytes: number;
   outputKB: number;
   sizeRatio: number | null;
   sizeRatioStatus: "defined" | "zero-input";
+}
+
+export interface EvidenceHighlight {
+  selectors: string[];
+  kind: "match" | "context" | "none";
+  explanation: string;
+}
+
+export interface EvidenceInspection {
+  html: string;
+  highlights: Record<string, EvidenceHighlight>;
+}
+
+/** Display-only locations for an existing verdict; never modifies measured output or scores. */
+export function inspectEvidence(output: string, state: CaseState, assessment: Assessment): EvidenceInspection {
+  const contract = stateSchema.parse(state);
+  if (contract.requirements.some(requirement => !assessment.requirements.some(item => item.id === requirement.id))) {
+    throw new TypeError("Inspection requires the assessment for every state goal.");
+  }
+  let dom: JSDOM | undefined;
+  try {
+    if (Buffer.byteLength(output, "utf8") > READER_LIMITS.outputBytes) throw new Error("Output exceeds reader byte limit.");
+    dom = evidenceDOM(output, assessment.reader.format, true).dom;
+    const root = dom.window.document.body;
+    all(root).forEach((element, index) => element.setAttribute("data-bench-view-node", `v${index}`));
+    const html = root.outerHTML;
+    prepareDocument(dom.window.document);
+    const highlights: Record<string, EvidenceHighlight> = {};
+    for (const requirement of contract.requirements) {
+      const verdict = assessment.requirements.find(item => item.id === requirement.id)!;
+      const alternatives = verdict.passed
+        ? requirement.evidence.filter(alternative => verdict.matchedAlternatives.includes(alternative.id))
+        : requirement.evidence;
+      const targets = alternatives.map(alternative => {
+        const nodes: Element[] = [];
+        let strength = 0;
+        for (const rule of alternative.allOf) {
+          const resolved = resolveScope(rule.scope, root);
+          const scope = resolved.element;
+          if (rule.kind === "control") {
+            const local = scope ? (resolved.controls ?? all(scope)).filter(element => visible(element)
+              && role(element) === rule.role && controlName(element, true).value === normalize(rule.name)) : [];
+            if (local.length) {
+              nodes.push(...local);
+              strength += 3;
+            } else if (!verdict.passed) {
+              const global = all(root).filter(element => visible(element)
+                && role(element) === rule.role && controlName(element, true).value === normalize(rule.name));
+              if (global.length) { nodes.push(...global); strength += 2; }
+              else if (scope && scope !== root) { nodes.push(scope); strength++; }
+            }
+          } else if (scope) {
+            const locations = rule.kind === "text" ? smallestTextLocations(scope, rule.text) : [scope];
+            nodes.push(...locations);
+            strength += locations.length ? 3 : 0;
+          } else if (!verdict.passed && "anchor" in rule.scope) {
+            const context = smallestTextLocations(root, rule.scope.anchor);
+            nodes.push(...context);
+            strength += context.length ? 1 : 0;
+          }
+        }
+        return { nodes, strength };
+      });
+      const chosen = verdict.passed
+        ? targets.flatMap(target => target.nodes)
+        : [...targets].sort((a, b) => b.strength - a.strength)[0]?.nodes ?? [];
+      const selectors = [...new Set(chosen.flatMap(element => {
+        const marked = element.hasAttribute("data-bench-view-node")
+          ? element : element.querySelector("[data-bench-view-node]");
+        const id = marked?.getAttribute("data-bench-view-node");
+        return id ? [`[data-bench-view-node="${id}"]`] : [];
+      }))];
+      highlights[requirement.id] = {
+        selectors,
+        kind: selectors.length ? verdict.passed ? "match" : "context" : "none",
+        explanation: !selectors.length
+          ? "The evidence reader cannot locate this goal in this representation."
+          : verdict.passed
+            ? "Elements supporting a complete, passing evidence alternative."
+            : "Context or candidate elements only. Required scope, state, facts, or uniqueness did not pass; this is not a successful match.",
+      };
+    }
+    return { html, highlights };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      html: "<p>Preview locations are unavailable. Inspect the exact source instead.</p>",
+      highlights: Object.fromEntries(contract.requirements.map(requirement => [requirement.id, {
+        selectors: [], kind: "none", explanation: `Inspection unavailable: ${message}`,
+      }])),
+    };
+  } finally { dom?.window.close(); }
+}
+
+function smallestTextLocations(root: Element, text: string): Element[] {
+  const candidates = all(root).filter(element => visible(element)
+    && textRuns(element).some(run => occurrences(run, normalize(text)) > 0));
+  return candidates.filter(element => !candidates.some(other => other !== element && element.contains(other)));
 }
 
 type Control = Extract<EvidenceRule, { kind: "control" }>;
@@ -89,13 +192,25 @@ export function assessOutput(
   try {
     if (outputBytes > READER_LIMITS.outputBytes) throw new Error("Output exceeds reader byte limit.");
     // No scripts, resource loading, browser navigation, or execution of event handlers.
-    dom = new JSDOM(format === "html" ? output : marked.parse(output, { async: false, gfm: true }));
+    const parsed = evidenceDOM(output, format, true);
+    dom = parsed.dom;
     prepareDocument(dom.window.document);
     requirements = contract.requirements.map(requirement =>
       result(requirement, requirement.evidence.map(alternative => ({
         id: alternative.id,
-        checks: alternative.allOf.flatMap(rule => evaluate(rule, dom!.window.document.body)),
+        checks: alternative.allOf.flatMap(rule => evaluate(rule, dom!.window.document.body, true, parsed.tables)),
       }))));
+    const strict = evidenceDOM(output, format, false).dom;
+    try {
+      prepareDocument(strict.window.document);
+      for (const [index, requirement] of contract.requirements.entries()) {
+        const semanticPassed = requirement.evidence.some(alternative =>
+          alternative.allOf.every(rule => evaluate(rule, strict.window.document.body, false).every(item => item.passed)));
+        const item = requirements[index]!;
+        item.semanticPassed = semanticPassed;
+        item.match = item.passed ? semanticPassed ? "explicit" : "inferred" : "none";
+      }
+    } finally { strict.window.close(); }
   } catch (error) {
     readerError = error instanceof Error ? error.message : "Evidence reader failed.";
     requirements = contract.requirements.map(requirement =>
@@ -106,10 +221,10 @@ export function assessOutput(
   } finally {
     dom?.window.close();
   }
-  const retention = (items: RequirementAssessment[]): Retention => ({
-    numerator: items.filter(item => item.passed).length,
+  const retention = (items: RequirementAssessment[], semantic = false): Retention => ({
+    numerator: items.filter(item => semantic ? item.semanticPassed : item.passed).length,
     denominator: items.length,
-    fraction: items.length ? items.filter(item => item.passed).length / items.length : null,
+    fraction: items.length ? items.filter(item => semantic ? item.semanticPassed : item.passed).length / items.length : null,
   });
   return {
     reader: { version: READER_VERSION, format, status: readerError ? "unsupported" : "ok", reasons: readerError ? [readerError] : [] },
@@ -118,6 +233,11 @@ export function assessOutput(
       content: retention(requirements.filter(item => item.category === "content")),
       control: retention(requirements.filter(item => item.category === "control")),
       overall: retention(requirements),
+    },
+    semanticRetention: {
+      content: retention(requirements.filter(item => item.category === "content"), true),
+      control: retention(requirements.filter(item => item.category === "control"), true),
+      overall: retention(requirements, true),
     },
     fullFidelity: requirements.length > 0 && requirements.every(item => item.passed),
     inputBytes,
@@ -147,6 +267,9 @@ function result(
     checks,
     alternatives,
     matchedAlternatives,
+    semanticPassed: false, match: passed ? "inferred" : "none",
+    inferenceRules: [...new Set(alternatives.filter(alternative => alternative.passed)
+      .flatMap(alternative => alternative.checks.flatMap(item => item.inference ? [item.inference] : [])))],
   };
 }
 
@@ -265,9 +388,11 @@ function cells(row: Element): Element[] {
     cellRoles.has(role(element) ?? "") && closestRole(element.parentElement, rowRoles) === row && visible(element));
 }
 
-function resolveScope(scope: Scope, root: Element): { element?: Element; checks: Check[] } {
+interface ResolvedScope { element?: Element; controls?: Element[]; table?: Element; checks: Check[] }
+
+function resolveScope(scope: Scope, root: Element, infer = true): ResolvedScope {
   if (scope.kind === "page") return { element: root, checks: [check("scope", true, "Page scope resolved.")] };
-  if (scope.kind === "selection-toolbar") return selectionToolbar(scope.anchor, root);
+  if (scope.kind === "selection-toolbar") return selectionToolbar(scope.anchor, root, infer);
   if (scope.kind === "controlled-popup") return controlledPopup(scope.anchor, root);
   const candidates = all(root).filter(element => {
     if (!visible(element)) return false;
@@ -306,7 +431,14 @@ function controlledPopup(anchor: string, root: Element): { element?: Element; ch
   };
 }
 
-function selectionToolbar(anchor: string, root: Element): { element?: Element; checks: Check[] } {
+function selectionToolbar(anchor: string, root: Element, infer: boolean): ResolvedScope {
+  const explicit = explicitSelectionToolbar(anchor, root);
+  if (explicit.element || !infer) return explicit;
+  const inferred = selectedRecordActions(anchor, root);
+  return inferred.element ? inferred : { checks: [...explicit.checks, ...inferred.checks] };
+}
+
+function explicitSelectionToolbar(anchor: string, root: Element): ResolvedScope {
   const rows = all(root).filter(element => visible(element) && role(element) === "row");
   const targets = rows.filter(row => cells(row).some(cell => visibleText(cell) === normalize(anchor)));
   if (targets.length !== 1) {
@@ -338,19 +470,136 @@ function selectionToolbar(anchor: string, root: Element): { element?: Element; c
   };
 }
 
-function evaluate(rule: EvidenceRule, root: Element): Check[] {
-  const scope = resolveScope(rule.scope, root);
+function selectedRecordActions(anchor: string, root: Element): ResolvedScope {
+  const fail = (message: string): ResolvedScope => ({ checks: [check("selection-context", false, message)] });
+  const row = resolveScope({ kind: "row", anchor }, root).element;
+  const table = row && closestRole(row.parentElement, tableRoles);
+  if (!row || !table) return fail("Contextual actions require one identifiable target row.");
+  const selected = all(root).filter(element => visible(element) && role(element) === "row"
+    && element.getAttribute("aria-selected") === "true");
+  const selectionBoxes = all(root).filter(element => visible(element) && role(element) === "checkbox"
+    && name(element).startsWith("Select ") && closestRole(element.parentElement, rowRoles));
+  if (selectionBoxes.some(element => controlState(element, "checked", "checkbox").error)) {
+    return fail("Row-selection checkbox state is contradictory or unsupported.");
+  }
+  const checked = selectionBoxes.filter(element => controlState(element, "checked", "checkbox").value === true);
+  const targetNames = [`Select ${anchor}`, `Select request ${anchor}`, `Select record ${anchor}`].map(normalize);
+  const selectedByCheckbox = checked.length === 1 && targetNames.includes(name(checked[0]!))
+    && closestRole(checked[0]!.parentElement, rowRoles) === row;
+  if (selected.length > 1 || (selected.length === 1 && selected[0] !== row)
+    || checked.length > 1 || (checked.length === 1 && !selectedByCheckbox)
+    || row.getAttribute("aria-selected") === "false"
+    || (selected.length === 1 && selectionBoxes.some(element => targetNames.includes(name(element))
+      && closestRole(element.parentElement, rowRoles) === row && controlState(element, "checked", "checkbox").value !== true))
+    || (selected.length !== 1 && !selectedByCheckbox)) {
+    return fail("Contextual actions require a sole selected target row, with no conflicting selection state.");
+  }
+
+  const actionRoles = new Set(["button", "link", "menuitem"]);
+  function hasCue(first: Element): boolean {
+    let text = "";
+    for (let previous = first.previousSibling; previous; previous = previous.previousSibling) {
+      if (previous.nodeType === 8) continue;
+      if (previous.nodeType === 3) text = (previous.textContent ?? "") + text;
+      else if (previous.nodeType === 1) {
+        const element = previous as Element;
+        if (!["SPAN", "STRONG", "B", "EM", "I"].includes(element.tagName)
+          || !visible(element) || element.children.length || role(element)) break;
+        text = (element.textContent ?? "") + text;
+      } else break;
+      if (text.length > 160) break;
+      const cue = normalize(text);
+      const prefix = cue.match(/^(?:\*\*|__)?1 (?:request|record|item) selected(?:\*\*|__)?\s*/i);
+      if (prefix && normalize(cue.slice(prefix[0].length)) === normalize(anchor)) return true;
+    }
+    return false;
+  }
+  function controlsIn(group: Element): Element[] | undefined {
+    const controls: Element[] = [];
+    function visit(node: Node): boolean {
+      if (node.nodeType === 3) return !normalize(node.textContent ?? "");
+      if (node.nodeType !== 1) return true;
+      const element = node as Element;
+      if (!visible(element)) return true;
+      if (actionRoles.has(role(element) ?? "")) { controls.push(element); return true; }
+      if (!["DIV", "SPAN", "SECTION"].includes(element.tagName)) return false;
+      if (role(element) && !["toolbar", "separator", "generic"].includes(role(element)!)) return false;
+      return [...element.childNodes].every(visit);
+    }
+    return [...group.childNodes].every(visit) && controls.length ? controls : undefined;
+  }
+  function consistent(group: Element): boolean {
+    if (!referenceChecks(group).every(item => item.passed)) return false;
+    const namedTarget = name(group).match(/^Actions for (.+)$/i);
+    if (namedTarget && normalize(namedTarget[1]!) !== normalize(anchor)) return false;
+    if (!group.hasAttribute("aria-controls")) return true;
+    const ids = normalize(group.getAttribute("aria-controls") ?? "").split(" ").filter(Boolean);
+    if (ids.length !== 1) return false;
+    const references = referenced(root.ownerDocument, ids[0]!);
+    // A dangling ID is not evidence. The independent cue and selected row must suffice.
+    return references.length === 0 || (references.length === 1 && references[0] === table);
+  }
+  const candidates: { element: Element; controls: Element[] }[] = [];
+  for (const element of all(root)) {
+    if (!visible(element) || !hasCue(element)) continue;
+    if (["DIV", "SECTION"].includes(element.tagName) || role(element) === "toolbar") {
+      if (role(element) && !["toolbar", "group", "generic", "region", "menu"].includes(role(element)!)) continue;
+      const controls = controlsIn(element);
+      if (controls && consistent(element)) candidates.push({ element, controls });
+    } else if (actionRoles.has(role(element) ?? "")) {
+      const controls: Element[] = [];
+      for (let next: Node | null = element; next; next = next.nextSibling) {
+        if (next.nodeType === 3 && !normalize(next.textContent ?? "")) continue;
+        if (next.nodeType !== 1 || !visible(next as Element) || !actionRoles.has(role(next as Element) ?? "")) break;
+        controls.push(next as Element);
+      }
+      if (element.parentElement && consistent(element.parentElement)) candidates.push({ element: element.parentElement, controls });
+    }
+  }
+  if (candidates.length !== 1) return fail(`Selection cue must identify one adjacent action group; found ${candidates.length}.`);
+  return {
+    ...candidates[0]!, table,
+    checks: [{
+      ...check("selection-context", true, "A sole selected target row and matching adjacent one-record selection cue identify this action group."),
+      inference: "selected-record-context",
+    }],
+  };
+}
+
+function evaluate(rule: EvidenceRule, root: Element, infer = true, tables = new WeakSet<Element>()): Check[] {
+  const scope = resolveScope(rule.scope, root, infer);
   if (!scope.element) return scope.checks;
+  if (scope.controls && rule.kind !== "control") return [check("scope", false, "Contextual action groups support control evidence only.")];
+  const table = scope.table ?? closestRole(scope.element, tableRoles);
+  if (table && tables.has(table)) scope.checks.push({
+    ...check("hybrid-table", true, "Row and columns recovered from a headered hybrid Markdown table."),
+    inference: "hybrid-table",
+  });
   if (rule.kind === "text") {
     const count = textRuns(scope.element).reduce((sum, text) => sum + occurrences(text, normalize(rule.text)), 0);
     return [...scope.checks, check("text", count === 1, `Text ${JSON.stringify(rule.text)} requires one bounded occurrence; found ${count}.`)];
   }
-  if (rule.kind === "record") return [...scope.checks, ...recordChecks(scope.element, rule.fields)];
-  if (rule.kind === "properties") return [...scope.checks, ...propertyChecks(scope.element, rule.fields)];
-  return [...scope.checks, ...controlChecks(scope.element, rule)];
+  if (rule.kind === "record") return [...scope.checks, ...recordChecks(scope.element, rule.fields, infer)];
+  if (rule.kind === "properties") return [...scope.checks, ...propertyChecks(scope.element, rule.fields, infer)];
+  return [...scope.checks, ...controlChecks(scope.element, rule, infer, scope.controls)];
 }
 
-function propertyChecks(scope: Element, fields: { label: string; value: string }[]): Check[] {
+type Field = Extract<EvidenceRule, { kind: "record" }>["fields"][number];
+
+function fieldCheck(code: string, actual: string, field: Field, infer: boolean): Check {
+  const exact = actual === normalize(field.value);
+  const match = infer && field.valueType === "person-name"
+    ? actual.match(/^(\p{Lu}{2,4})\s*(\p{Lu}[\p{L}'’-]+(?: \p{Lu}[\p{L}'’-]+){1,3})$/u) : null;
+  const normalized = match && match[2]!.split(" ").map(word => word[0]).join("") === match[1]
+    && match[2] === normalize(field.value);
+  return {
+    ...check(code, exact || !!normalized,
+      `Field ${JSON.stringify(field.label)} expected ${JSON.stringify(field.value)}; observed ${JSON.stringify(actual)}.`),
+    ...(!exact && normalized ? { inference: "person-name-initials" } : {}),
+  };
+}
+
+function propertyChecks(scope: Element, fields: Field[], infer: boolean): Check[] {
   const runs = textRuns(scope);
   return fields.map(field => {
     const label = normalize(field.label);
@@ -368,8 +617,8 @@ function propertyChecks(scope: Element, fields: { label: string; value: string }
         values.push(visibleText(definition));
       }
     }
-    return check("property", values.length === 1 && values[0] === normalize(field.value),
-      `Property ${JSON.stringify(label)} needs one associated value ${JSON.stringify(field.value)}; observed ${JSON.stringify(values)}.`);
+    return values.length === 1 ? fieldCheck("property", values[0]!, field, infer)
+      : check("property", false, `Property ${JSON.stringify(label)} needs one associated value; observed ${JSON.stringify(values)}.`);
   });
 }
 
@@ -394,13 +643,35 @@ function referenceChecks(element: Element): Check[] {
   return checks;
 }
 
-function controlChecks(scope: Element, rule: Control): Check[] {
-  const candidates = all(scope).filter(element =>
-    visible(element) && role(element) === rule.role && name(element) === normalize(rule.name));
+function controlName(element: Element, infer: boolean): { value: string; inferred?: true } {
+  const explicit = name(element);
+  if (explicit || !infer || element.hasAttribute("aria-label") || element.hasAttribute("aria-labelledby")
+    || !["INPUT", "SELECT", "TEXTAREA"].includes(element.tagName)) return { value: explicit };
+  const parent = element.parentElement;
+  if (!parent || all(parent).filter(other => visible(other) && role(other) === role(element)).length !== 1) return { value: "" };
+  let before = element.previousSibling;
+  while (before && (before.nodeType === 8 || (before.nodeType === 3 && !normalize(before.textContent ?? "")))) before = before.previousSibling;
+  if (!before) return { value: "" };
+  if (before.nodeType === 1) {
+    const label = before as Element;
+    if (!["SPAN", "LABEL", "B", "STRONG", "SMALL"].includes(label.tagName)
+      || !visible(label) || label.hasAttribute("for") || label.children.length) return { value: "" };
+  } else if (before.nodeType !== 3) return { value: "" };
+  const value = normalize(before.textContent ?? "");
+  return value && value.length <= 80 ? { value, inferred: true } : { value: "" };
+}
+
+function controlChecks(scope: Element, rule: Control, infer: boolean, eligible?: Element[]): Check[] {
+  const candidates = (eligible ?? all(scope)).filter(element =>
+    visible(element) && role(element) === rule.role && controlName(element, infer).value === normalize(rule.name));
   const checks = [check("control", candidates.length === 1,
     `Role ${rule.role} with name ${JSON.stringify(rule.name)} requires one visible semantic control; found ${candidates.length}.`)];
   if (candidates.length !== 1) return checks;
   const element = candidates[0]!;
+  if (controlName(element, infer).inferred) checks.push({
+    ...check("contextual-label", true, "Immediate adjacent text identifies the sole compatible control in its parent."),
+    inference: "adjacent-control-label",
+  });
   checks.push(...referenceChecks(element));
   if (rule.value !== undefined) {
     const value = controlValue(element, rule.role);
@@ -416,6 +687,27 @@ function controlChecks(scope: Element, rule: Control): Check[] {
     const description = normalize(computeAccessibleDescription(element, { computedStyleSupportsPseudoElements: false }));
     checks.push(check("description", description === normalize(rule.description),
       `Expected accessible description ${JSON.stringify(rule.description)}; observed ${JSON.stringify(description)}.`));
+  }
+  if (rule.choices) {
+    let options: Element[] = [];
+    if (element.tagName === "SELECT") options = [...(element as HTMLSelectElement).options];
+    else {
+      const ids = normalize(element.getAttribute("aria-controls") ?? "").split(" ").filter(Boolean);
+      const lists = element.hasAttribute("aria-controls")
+        ? ids.length === 1 ? referenced(element.ownerDocument, ids[0]!) : []
+        : all(element).filter(candidate => role(candidate) === "listbox");
+      const valid = lists.length === 1 && role(lists[0]!) === "listbox" && visible(lists[0]!);
+      checks.push(check("choices-relationship", valid, "Custom choices require one contained or uniquely controlled visible listbox."));
+      if (valid) options = all(lists[0]!).filter(candidate => role(candidate) === "option"
+        && closestRole(candidate.parentElement, new Set(["listbox"])) === lists[0]);
+    }
+    const choices = options.filter(option => visible(option)
+      && controlState(option, "disabled", "option").value === false);
+    for (const expected of rule.choices) {
+      const found = choices.filter(option => visibleText(option) === normalize(expected));
+      checks.push(check("choice", found.length === 1,
+        `Choice ${JSON.stringify(expected)} requires one visible enabled option; found ${found.length}.`));
+    }
   }
   return checks;
 }
@@ -530,7 +822,7 @@ function column(cell: Element, rowCells: Element[]): number | undefined {
   return index === -1 ? undefined : index + 1;
 }
 
-function recordChecks(row: Element, fields: { label: string; value: string }[]): Check[] {
+function recordChecks(row: Element, fields: Field[], infer: boolean): Check[] {
   const table = closestRole(row.parentElement, tableRoles);
   if (!table) return [check("table-relationship", false, "Record row has no semantic table/grid owner.")];
   const rows = all(table).filter(element => role(element) === "row"
@@ -568,8 +860,7 @@ function recordChecks(row: Element, fields: { label: string; value: string }[]):
       `Column ${JSON.stringify(field.label)} requires one associated cell in the anchored row; found ${matchingCells.length}.`));
     if (matchingCells.length === 1) {
       const actual = visibleText(matchingCells[0]!);
-      checks.push(check("record-value", actual === normalize(field.value),
-        `Column ${JSON.stringify(field.label)} expected ${JSON.stringify(field.value)}; observed ${JSON.stringify(actual)}.`));
+      checks.push(fieldCheck("record-value", actual, field, infer));
     }
   }
   return checks;

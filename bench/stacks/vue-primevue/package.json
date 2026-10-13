@@ -1,0 +1,29 @@
+{
+  "name": "@perception-bench/vue-primevue",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "vue-tsc --noEmit",
+    "test:browser": "node --experimental-strip-types --test tests/records.test.ts"
+  },
+  "dependencies": {
+    "@perception-bench/scenarios": "workspace:*",
+    "primevue": "4.3.5",
+    "vue": "3.5.16"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@vitejs/plugin-vue": "6.0.1",
+    "playwright": "1.58.2",
+    "typescript": "5.8.3",
+    "vite": "7.3.1",
+    "vue-tsc": "2.2.10"
+  }
+}

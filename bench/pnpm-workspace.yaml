@@ -1,3 +1,5 @@
 packages:
   - "packages/scenarios"
   - "stacks/*"
+onlyBuiltDependencies:
+  - esbuild

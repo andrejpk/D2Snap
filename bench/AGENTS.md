@@ -19,4 +19,6 @@ changing the corpus or fixture implementations.
 - Keep content/config/scorer identities complete. Never key an experiment by
   a branch name or config label alone.
 - Run `pnpm --dir bench check` from the repository root for foundation changes.
-  Browser capture/build validation will be added in the fixture phase.
+  For capture/replay changes also run `test:browser`, `demo`, and a second
+  `demo --assert-cached` invocation. Keep runtime model calls out of
+  the benchmark; authoring agents are separate from deterministic execution.

@@ -8,7 +8,8 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "types": ["node"]
   },
-  "include": ["cases/**/*.ts", "src/**/*.ts", "tests/**/*.ts", "packages/scenarios/**/*.ts"]
+  "include": ["cases/**/*.ts", "src/**/*.ts", "tests/**/*.ts", "browser-tests/**/*.ts", "packages/scenarios/**/*.ts"]
 }

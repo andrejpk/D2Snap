@@ -4,12 +4,14 @@ import { dataset } from "@perception-bench/scenarios";
 import { cases, matrix, stacks, variants } from "../../src/matrix.ts";
 import { equivalentControls, negativeControls, positiveControls } from "./controls.ts";
 
-test("the approved POC is exactly three cases by three stacks and six shared states", () => {
+test("the corpus retains three cases and registers five records stacks with shared states", () => {
   assert.deepEqual(cases.map(uxCase => uxCase.id), ["records", "request-form", "request-detail"]);
-  assert.equal(stacks.length, 3);
-  assert.equal(matrix.length, 9);
-  assert.equal(matrix.reduce((sum, cell) => sum + cell.stateIds.length, 0), 18);
-  assert.ok(matrix.every(cell => cell.status === "planned"));
+  assert.equal(stacks.length, 7);
+  assert.equal(matrix.length, 21);
+  assert.equal(matrix.reduce((sum, cell) => sum + cell.stateIds.length, 0), 42);
+  assert.equal(matrix.filter(cell => cell.status === "registered").length, 5);
+  assert.deepEqual(matrix.filter(cell => cell.status === "registered").map(cell => cell.caseId), Array(5).fill("records"));
+  assert.equal(matrix.find(cell => cell.caseId === "records" && cell.stackId === "react-shadcn")?.status, "registered");
   assert.ok(matrix.every(cell => variants.some(variant => variant.id === cell.variantId)));
 });
 

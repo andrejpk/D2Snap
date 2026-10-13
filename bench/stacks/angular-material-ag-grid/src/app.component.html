@@ -1,0 +1,73 @@
+<a class="skip-link" href="#request-workbench">Skip to purchase requests</a>
+<mat-toolbar class="app-header">
+  <span class="brand-mark" aria-hidden="true">P</span>
+  <div class="brand"><strong>{{ corpus.chrome.brand }}</strong><small>Enterprise operations / North America</small></div>
+  <span class="header-spacer"></span>
+  <span class="environment">LOCAL WORKSPACE</span>
+  <span class="avatar" aria-hidden="true">OP</span><span class="operator">Operations desk</span>
+</mat-toolbar>
+<div class="shell">
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <p class="eyebrow">Workspaces</p>
+    <nav aria-label="Primary">
+      <a href="#overview">Overview <span aria-hidden="true">01</span></a>
+      <a href="#request-workbench" aria-current="page">Requests <span>{{ records.length }}</span></a>
+      <a href="#operations-notes">Reports</a>
+      <a href="#help-center">Help</a>
+    </nav>
+    <div class="nav-section"><p class="eyebrow">Reference directory</p>
+      <p class="muted">Supplier network</p>
+      @for (supplier of corpus.suppliers; track supplier) { <p class="directory-item">{{ supplier }}</p> }
+    </div>
+    <div class="nav-section"><p class="eyebrow">Cost centers</p>
+      @for (center of corpus.costCenters; track center) { <p class="directory-item">{{ center }}</p> }
+    </div>
+    <div class="sidebar-footer"><span class="service-dot" aria-hidden="true"></span> Local data ready<br><small>No changes are sent externally</small></div>
+  </aside>
+  <main>
+    <div class="breadcrumbs">Operations <span aria-hidden="true">/</span> Procurement <span aria-hidden="true">/</span> Requests</div>
+    <header class="page-heading"><div><p class="eyebrow">Operations workbench</p><h1>Purchase requests</h1>
+      <p class="muted">Review purchasing activity, inspect request details and manage owner assignments.</p></div>
+      <button mat-stroked-button (click)="reset()">Reset workspace</button>
+    </header>
+    <section class="metrics" id="overview" aria-label="Request overview">
+      <mat-card appearance="outlined"><mat-card-content><span>Total requests</span><strong>{{ records.length }}</strong><small>Across all owners</small></mat-card-content></mat-card>
+      <mat-card appearance="outlined"><mat-card-content><span>Pending review</span><strong>{{ countStatus('Pending') }}</strong><small>Awaiting review</small></mat-card-content></mat-card>
+      <mat-card appearance="outlined"><mat-card-content><span>Overdue</span><strong>{{ countStatus('Overdue') }}</strong><small>Follow up with owners</small></mat-card-content></mat-card>
+      <mat-card appearance="outlined"><mat-card-content><span>Approved</span><strong>{{ countStatus('Approved') }}</strong><small>Ready for purchasing</small></mat-card-content></mat-card>
+    </section>
+    <section class="workbench" id="request-workbench" aria-labelledby="queue-heading">
+      <div class="section-heading"><div><h2 id="queue-heading">Request queue</h2><p class="muted">Select a row to view details or reassign its owner. Use Space for keyboard selection.</p></div><span class="queue-label">Operations queue</span></div>
+      <div class="filters">
+        <mat-form-field appearance="outline" class="search-field"><mat-label>Search requests</mat-label>
+          <input matInput type="search" [(ngModel)]="query" (ngModelChange)="filterRecords()" autocomplete="off">
+        </mat-form-field>
+        <mat-form-field appearance="outline"><mat-label>Status</mat-label>
+          <select matNativeControl [(ngModel)]="status" (ngModelChange)="filterRecords()">
+            @for (choice of corpus.statusFilters; track choice) { <option [value]="choice">{{ choice }}</option> }
+          </select>
+        </mat-form-field>
+        <span class="result-count" role="status">{{ visibleRecords.length }} of {{ records.length }} requests</span>
+      </div>
+      <div class="command-area">
+        @if (selected; as record) {
+          <mat-toolbar role="toolbar" [attr.aria-label]="'Actions for ' + record.id" class="command-toolbar">
+            <span class="selection-label"><strong>{{ record.id }}</strong> selected</span>
+            <button mat-flat-button (click)="openDialog('details')">View request</button>
+            <button mat-stroked-button (click)="openDialog('reassign')">Reassign owner</button>
+            <span class="header-spacer"></span><button mat-button (click)="clearSelection()">Clear selection</button>
+          </mat-toolbar>
+        } @else { <p class="selection-placeholder">No request selected <span>· Select any row to see available actions</span></p> }
+      </div>
+      <ag-grid-angular class="ag-theme-quartz request-grid" [gridOptions]="gridOptions" [rowData]="visibleRecords"
+        [columnDefs]="columns" (gridReady)="gridReady($event)" (selectionChanged)="selectionChanged($event)" />
+      <div class="grid-footer"><span>Showing {{ visibleRecords.length }} requests</span><span>USD · Single-row selection · Local session</span></div>
+      @if (announcement) { <p role="status" class="change-notice">{{ announcement }}</p> }
+    </section>
+    <div class="support-panels">
+      <section id="operations-notes" aria-labelledby="notes-heading"><h2 id="notes-heading">Operations notes</h2><p>Keep ownership current before the next review cycle. Use the request queue to verify supplier, amount and status.</p><span class="muted">Reporting scope: current workspace</span></section>
+      <section id="help-center" aria-labelledby="help-heading"><h2 id="help-heading">Procurement help</h2><p>{{ corpus.chrome.announcement }}</p><details><summary>Assignment policy</summary><p>Assign requests to an existing operations owner. Review request details before reassignment. Reset workspace discards local edits.</p></details></section>
+    </div>
+    <footer class="page-footer"><span>{{ corpus.chrome.footer }}</span><span>Procurement operations · Session data only</span></footer>
+  </main>
+</div>
