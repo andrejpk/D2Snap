@@ -4,7 +4,10 @@ const DEFAULT_SETTINGS = Object.freeze({
 });
 var filter_comments_default = forComments((virtualComment, _liveComment, _context, settings = {}) => {
   const keepPattern = settings.keepPattern ?? DEFAULT_SETTINGS.keepPattern;
-  if (keepPattern?.test(virtualComment.data)) return;
+  if (keepPattern) {
+    keepPattern.lastIndex = 0;
+    if (keepPattern.test(virtualComment.data)) return;
+  }
   virtualComment.parentNode?.removeChild(virtualComment);
 });
 export {

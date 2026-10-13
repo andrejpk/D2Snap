@@ -1672,8 +1672,6 @@
   });
 
   // src/options.classifiers/is-actionable-element.ts
-  var NAME_SETS_BY_LIST = /* @__PURE__ */ new WeakMap();
-  var NAME_SETS_BY_KEY = /* @__PURE__ */ new Map();
   var DEFAULT_SETTINGS = Object.freeze({
     roleAttributeValues: Object.freeze([...ACTIONABLE_ROLE_ATTRIBUTE_VALUES]),
     tagNames: Object.freeze([
@@ -1689,19 +1687,28 @@
       "TEXTAREA"
     ])
   });
+  var normalizeTagName = (name) => name.toUpperCase();
+  var normalizeRoleAttributeValue = (name) => name.toLowerCase();
+  var NAME_SETS_BY_NORMALIZER = /* @__PURE__ */ new WeakMap();
+  var NAME_SETS_BY_KEY = /* @__PURE__ */ new Map();
   function resolveNameSet(names, normalize) {
-    let nameSet = NAME_SETS_BY_LIST.get(names);
+    let nameSetsByList = NAME_SETS_BY_NORMALIZER.get(normalize);
+    if (!nameSetsByList) {
+      nameSetsByList = /* @__PURE__ */ new WeakMap();
+      NAME_SETS_BY_NORMALIZER.set(normalize, nameSetsByList);
+    }
+    let nameSet = nameSetsByList.get(names);
     if (nameSet) return nameSet;
     const normalizedNames = names.map(normalize);
     const key = normalizedNames.join("\n");
     nameSet = NAME_SETS_BY_KEY.get(key) ?? new Set(normalizedNames);
     NAME_SETS_BY_KEY.set(key, nameSet);
-    NAME_SETS_BY_LIST.set(names, nameSet);
+    nameSetsByList.set(names, nameSet);
     return nameSet;
   }
   function is_actionable_element_default(elementNode, settings = {}) {
-    const tagNames = resolveNameSet(settings.tagNames ?? DEFAULT_SETTINGS.tagNames, (name) => name.toUpperCase());
-    const roleAttributeValues = resolveNameSet(settings.roleAttributeValues ?? DEFAULT_SETTINGS.roleAttributeValues, (name) => name.toLowerCase());
+    const tagNames = resolveNameSet(settings.tagNames ?? DEFAULT_SETTINGS.tagNames, normalizeTagName);
+    const roleAttributeValues = resolveNameSet(settings.roleAttributeValues ?? DEFAULT_SETTINGS.roleAttributeValues, normalizeRoleAttributeValue);
     return tagNames.has(elementNode.tagName.toUpperCase()) || roleAttributeValues.has(
       elementNode.getAttribute("role")?.toLowerCase() ?? elementNode.role ?? ""
     );
@@ -1828,7 +1835,10 @@
   });
   var filter_comments_default = forComments((virtualComment, _liveComment, _context, settings = {}) => {
     const keepPattern = settings.keepPattern ?? DEFAULT_SETTINGS4.keepPattern;
-    if (keepPattern?.test(virtualComment.data)) return;
+    if (keepPattern) {
+      keepPattern.lastIndex = 0;
+      if (keepPattern.test(virtualComment.data)) return;
+    }
     virtualComment.parentNode?.removeChild(virtualComment);
   });
 
@@ -1840,7 +1850,9 @@
   var filter_data_urls_default = forAttributes((virtualAttr, _liveAttr, _context, settings = {}) => {
     const attributeNames = settings.attributeNames ?? DEFAULT_SETTINGS5.attributeNames;
     const valuePattern = settings.valuePattern ?? DEFAULT_SETTINGS5.valuePattern;
-    if (!attributeNames.some((attributeName) => attributeName.toLowerCase() === virtualAttr.name.toLowerCase()) || !valuePattern.test(virtualAttr.value)) return;
+    if (!attributeNames.some((attributeName) => attributeName.toLowerCase() === virtualAttr.name.toLowerCase())) return;
+    valuePattern.lastIndex = 0;
+    if (!valuePattern.test(virtualAttr.value)) return;
     virtualAttr.ownerElement?.removeAttribute(virtualAttr.name);
   });
 
@@ -2784,7 +2796,11 @@
           return getByteLength(getHTML("innerHTML"));
         },
         get sizeRatio() {
-          return getByteLength(getHTML("innerHTML")) / originalSize;
+          const snapshotSize = getByteLength(getHTML("innerHTML"));
+          if (originalSize === 0) {
+            return snapshotSize === 0 ? 1 : Infinity;
+          }
+          return snapshotSize / originalSize;
         },
         get tokenEstimate() {
           return Math.round(getHTML("innerHTML").length / 4);

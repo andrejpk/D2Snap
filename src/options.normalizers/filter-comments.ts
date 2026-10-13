@@ -20,7 +20,11 @@ export default forComments<FilterCommentsSettings>((
 ): void => {
 	const keepPattern: RegExp | null = settings.keepPattern ?? DEFAULT_SETTINGS.keepPattern;
 
-	if(keepPattern?.test(virtualComment.data)) return;
+ 	if(keepPattern) {
+ 		keepPattern.lastIndex = 0;
+
+ 		if(keepPattern.test(virtualComment.data)) return;
+ 	}
 
 	virtualComment.parentNode?.removeChild(virtualComment);
 });

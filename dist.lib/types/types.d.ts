@@ -8,8 +8,8 @@ export type TextNode = Node & {
 };
 export type DOM = Document | Element;
 export type ElementClassifierFn<T> = (element: T) => boolean;
-export type SentenceRankerFn = (sentences: string[]) => string[];
 export type NodeNormalizerFn = (virtualNode: Node, liveNode: Node, context: NormalizerContext) => void;
+export type SentenceRankerFn = (sentences: string[]) => string[];
 export interface NormalizerContext {
     classifiers: D2SnapOptions["classifiers"];
     document: Document;

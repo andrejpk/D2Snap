@@ -311,7 +311,11 @@ function d2Snap(dom, ...args) {
         return getByteLength(getHTML("innerHTML"));
       },
       get sizeRatio() {
-        return getByteLength(getHTML("innerHTML")) / originalSize;
+        const snapshotSize = getByteLength(getHTML("innerHTML"));
+        if (originalSize === 0) {
+          return snapshotSize === 0 ? 1 : Infinity;
+        }
+        return snapshotSize / originalSize;
       },
       get tokenEstimate() {
         return Math.round(getHTML("innerHTML").length / 4);

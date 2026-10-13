@@ -148,12 +148,14 @@
 		return JSON.stringify(
 			[ ...dom.querySelectorAll("*") ]
 				.map(element => {
+					const text = getTruncatedDirectText(element);
 					const uid = element.getAttribute("data-uid");
 					const role = element.getAttribute("role");
 
 					return {
 						tagName: element.tagName.toUpperCase(),
-						text: getTruncatedDirectText(element),
+
+						...(text ? { text } : {}),
 						...(uid ? { uid } : {}),
 						...(role ? { role } : {})
 					};
@@ -190,9 +192,9 @@
 		});
 	}
 
-	function renderResult3D(htmlInput, result, duration) {
+	function renderResult3D(htmlInput, htmlOutput) {
 		domRelief.update({
-			documents: [ htmlInput, result.html ]
+			documents: [ htmlInput, htmlOutput ]
 		});
 
 		const [ originalDOMMeta, snapshotDOMMeta ] = domRelief.meta.documents;
@@ -201,12 +203,9 @@
 			layerThickness: Math.max(1, snapshotDOMMeta.nodes / 2500)
 		});
 
-		originalSize = result.meta.originalSize;
-
 		updateMeta({
 			originalNodes: formatNumber(originalDOMMeta.nodes),
-			snapshotNodes: formatNumber(snapshotDOMMeta.nodes),
-			duration: formatNumber(Math.round(duration))
+			snapshotNodes: formatNumber(snapshotDOMMeta.nodes)
 		});
 
 		updateSizeMeta();
@@ -276,8 +275,16 @@
 		textareaIndexOutput.value = getIndexListRepresentation(result.dom);
 		textareaIndexJSONOutput.value = getIndexJSONRepresentation(result.dom);
 
-		renderResult3D(htmlInput, result, duration);
+		renderResult3D(htmlInput, result.html);
 		renderResultFrames(null, resultPreservedTextFormattingElements);
+
+		originalSize = result.meta.originalSize;
+
+		updateMeta({
+			duration: formatNumber(Math.round(duration))
+		});
+
+		updateSizeMeta();
 	}
 
 

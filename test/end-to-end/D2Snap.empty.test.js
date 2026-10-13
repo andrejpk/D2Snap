@@ -16,4 +16,15 @@ await test("Take DOM snapshot (empty)", async () => {
         expected,
         "Invalid DOM snapshot"
     );
+
+    // Empty to empty: unchanged (numeric ratio)
+    for(const input of [ "", "   ", "<!-- comment -->" ]) {
+        const { meta } = await d2Snap(input, 0.5, 0.5, 0.5);
+
+        assertEqual(
+            [ meta.originalSize, meta.snapshotSize, meta.sizeRatio ],
+            [ 0, 0, 1 ],
+            `Invalid size metadata (empty input ${JSON.stringify(input)})`
+        );
+    }
 });

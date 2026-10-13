@@ -24,9 +24,13 @@ export default forAttributes<FilterDataUrlsSettings>((
 	const valuePattern: RegExp = settings.valuePattern ?? DEFAULT_SETTINGS.valuePattern;
 
 	if(
-		!attributeNames.some((attributeName: string) => attributeName.toLowerCase() === virtualAttr.name.toLowerCase())
-			|| !valuePattern.test(virtualAttr.value)
+		!attributeNames
+			.some((attributeName: string) => (attributeName.toLowerCase() === virtualAttr.name.toLowerCase()))
 	) return;
+
+	valuePattern.lastIndex = 0;
+
+ 	if(!valuePattern.test(virtualAttr.value)) return;
 
 	virtualAttr.ownerElement?.removeAttribute(virtualAttr.name);
 });

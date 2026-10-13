@@ -7,7 +7,7 @@
 D2Snap reduces an input DOM by "averaging" features that render in the UI. The reduction is controlled by a defined ratio (e.g., `0.5`):
 
 - **Element** nodes are folded into each other. The DOM height is set to reduce by ratio (with `0.5`: half the original height).
-- **Text** contents are truncated at the least relevant sentences; relevance is translated by _TextRank_ centrality. Each text is set to reduce by ratio at the sentence level (with `0.5`: half of the sentences)
+- **Text** contents are truncated at the least relevant sentences; relevance is translated by _TextRank_ centrality. Each text is set to reduce by ratio at the sentence level (with `0.5`: half of the sentences); texts are text nodes or, with the `prose` option, the text of an element across its child elements
 - **Attribute** removal is implied with bottom-up folds (assumption: attributes are reflexive or forward-transitive). Additionally, attributes are removed if they score below a ratio-equivalent threshold (with `0.5`: all attributes less relevant than `0.5`). Scoring is thereby an affordance-frequency mapping between attribute names and a value on the ratio scale. Note that this technique is idempotent.
 
 Before downsampling, the DOM is normalised by a chain of callbacks (normalizers), e.g., to remove noise by absolute measures, or to recover anti-patterns for more idiomatic results. The API exposes the default callbacks, so they can be configured, reordered, or complemented with custom ones.
@@ -53,10 +53,7 @@ function d2Snap(
 
 function d2Snap(
   domOrHTML: Document | Element | string,
-  ratios: {
-    rE?: number; rA?: number; rT?: number;
-    r?: number;  // r = rE = rA = rT
-  },
+  ratios: { r?: number; rE?: number; rA?: number; rT?: number; },
   options?: D2SnapOptions
 ): Promise<D2SnapResult>
 ```
@@ -70,7 +67,7 @@ function d2Snap(
 | `domOrHTML` | Input DOM given as fully qualified document reference (tree), an element reference (subtree) or an equivalent HTML serialisation. | `Document`, `Element`, `string` |
 | `rE` | Element downsampling ratio. Controls the preserved DOM height by ratio. | `[0, 1]` |
 | `rA` | Attribute downsampling ratio (threshold). Controls which attributes are preserved by score threshold (latent ratio if scores are affordance-frequency balanced). Attribute scores are predefined based on empirical adjustment, but can be overridden via `options`. | `[0, 1]` |
-| `rT` | Text downsampling ratio. Controls the preserved sentence-based text length per text node. | `[0, 1]` |
+| `rT` | Text downsampling ratio. Controls the preserved sentence-based text length per text node (per element text with the `prose` option). | `[0, 1]` |
 | `ratios` | Downsampling ratios object. Specific ratios (`rE`, `rA`, `rT`) fall back to `r`, else to `0` (no reduction). | `D2SnapRatios` |
 | `options` | Specific configuration options (see below). | `D2SnapOptions` |
 
@@ -86,6 +83,8 @@ await d2Snap(html, { rE: 0.8 });          // only elements (rA = rT = 0)
 > `r` applies one value to all three ratios, which differ in kind: a relative ratio for `rE` and `rT`, but an absolute score threshold for `rA`.
 
 > With `rT = 0`, all sentences are kept, but text is still re-joined at the sentence level: whitespace and line breaks between sentences are normalised (also within `PRE` and `TEXTAREA` elements).
+
+> With the `prose` option, text is downsampled per element: the direct text nodes of an element form one text, ranked across its child elements, so complete sentences are kept (at least one per element). Element boundaries are hard boundaries: text within a child element (e.g., a link, a heading) is a text of its own. Child elements belong to the sentence at their position and are removed with dropped sentences – except actionable elements, which always survive in place; sentences containing actionable elements are ranked separately and rank first, so actionables tend to keep their context. With `rT = 0`, text remains untouched.
 
 #### Return Value
 
@@ -111,7 +110,7 @@ type D2SnapResult = {
 | `dom` | The downsampled DOM, cloned from the input DOM; hydrated from serialised input. |
 | `innerHTML`, `html` | The serialised downsampled DOM, excluding the root element. |
 | `outerHTML` | The serialised downsampled DOM, including the root element. |
-| `meta` | Information about the downsampling results: `tokenEstimate` – estimated token count of the HTML-serialised output DOM (based on [https://platform.openai.com](https://platform.openai.com/tokenizer)), `originalSize` – byte size (UTF-8) of the HTML-serialised input DOM, `sizeRatio` – size ratio of the HTML-serialised output DOM compared to the input DOM, `snapshotSize` – byte size (UTF-8) of the HTML-serialised output DOM, `timings` (debug mode only) – durations of individual downsampling steps. |
+| `meta` | Information about the downsampling results: `tokenEstimate` – estimated token count of the HTML-serialised output DOM (based on [https://platform.openai.com](https://platform.openai.com/tokenizer)), `originalSize` – byte size (UTF-8) of the HTML-serialised input DOM, `sizeRatio` – size ratio of the HTML-serialised output DOM compared to the input DOM (`1` for an empty input with an empty output), `snapshotSize` – byte size (UTF-8) of the HTML-serialised output DOM, `timings` (debug mode only) – durations of individual downsampling steps. |
 
 > The HTML-serialised input DOM is always parsed into a fully qualified document. For string or `Document` inputs, the returned `dom` is the cloned `BODY`.
 
@@ -219,6 +218,7 @@ interface D2SnapOptions {
     textElements?: ElementClassifierFn<Element>;
   };
   normalizers?: NodeNormalizerFn[];
+  prose?: boolean;
   sentenceRanker?: SentenceRankerFn | null;
   skip?: {
     markdown?: boolean;
@@ -237,6 +237,7 @@ interface D2SnapOptions {
 | `attributeScores` | Attribute scores for threshold-based removal (see [constants.defaults.ts](./src/constants.defaults.ts)). |
 | `classifiers` | HTML syntax-to-concept classification callbacks: `actionableElements` – what counts as an actionable, `textElements` – what should be translated to Markdown (see [Classifiers](#classifiers)). |
 | `normalizers` | Ordered chain of callbacks that normalise the DOM before downsampling (see [Normalizers](#normalizers)). Replaces the default chain; reuse `defaults.NORMALIZERS` for subsets, supersets, or other orders. |
+| `prose` | Toggle per-element text downsampling: the direct text nodes of an element form one text, ranked across its child elements (see the note on text downsampling above). Off: per text node (as described in the paper). |
 | `sentenceRanker` | Callback that ranks the sentences of a text by relevance, or `null` for no ranking (the leading sentences are kept; see [Sentence Rankers](#sentence-rankers)). |
 | `skip` | Toggle absolute downsampling measures: `markdown` – whether to skip translating text formatting elements (`classifiers.textElements`) to Markdown, `textRank` – whether to skip ranking text sentences before text-downsampling truncation (keeps the leading sentences; equivalent to `sentenceRanker: null`, a given `sentenceRanker` takes precedence). |
 
@@ -254,6 +255,7 @@ interface D2SnapOptions {
   attributeScores: defaults.ATTRIBUTE_SCORES,
   classifiers: defaults.CLASSIFIERS,
   normalizers: defaults.NORMALIZERS,
+  prose: false,
   sentenceRanker: defaults.SENTENCE_RANKER,
   skip: {
     markdown: false,
@@ -570,7 +572,7 @@ await d2Snap(`
 type SentenceRankerFn = (sentences: string[]) => string[];
 ```
 
-Sentence rankers order the sentences of a text by relevance (most relevant first). Text downsampling keeps the most relevant sentences, in their original order. Up to one sentence ranker applies (`sentenceRanker` option); with `null`, sentences are not ranked, so the leading sentences are kept. Each callback accepts its settings as optional second argument; wrap it to override the defaults:
+Sentence rankers order the sentences of a text by relevance (most relevant first). Text downsampling keeps the most relevant sentences, in their original order. With the `prose` option, the ranker receives sentences as visible (incl. the text of child elements), and sentences containing actionable elements are ranked separately and rank first. Up to one sentence ranker applies (`sentenceRanker` option); with `null`, sentences are not ranked, so the leading sentences are kept. Each callback accepts its settings as optional second argument; wrap it to override the defaults:
 
 ``` ts
 const sentenceRanker = sentences => defaults.sentenceRankers.textRank(sentences, {
@@ -730,7 +732,7 @@ const settings: Partial<defaults.normalizers.FilterNoiseElementsSettings> = {
 
 ## Limitations
 
-- **Long texts**: TextRank compares all sentence pairs of a text, so time and memory grow quadratically with the sentence count per text node. A single text node with tens of thousands of sentences can exhaust memory; use another sentence ranker, or `null`, for such input.
+- **Long texts**: TextRank compares all sentence pairs of a text, so time and memory grow quadratically with the sentence count per text node (per element text with the `prose` option). A single text with tens of thousands of sentences can exhaust memory; use another sentence ranker, or `null`, for such input.
 - **Wide text formatting elements**: Markdown translation converts each text formatting element as a whole. For a single element with thousands of children (e.g., a long list), the conversion time grows quadratically (skip with `skip.markdown`).
 - **Deep nesting (Node.js)**: jsdom's HTML serializer exceeds the call stack at roughly 3,000 levels of nesting.
 - **jsdom versions (Node.js)**: DOM operations of older jsdom versions grow superlinearly for wide or deep DOMs; use jsdom 30 or later.

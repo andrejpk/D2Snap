@@ -136,3 +136,28 @@ await test("Check element actionability (role property)", () => {
         "Invalid is-actionable classification (role property)"
     );
 });
+
+await test("Check element actionability (shared settings list)", () => {
+    // One array for both settings: tag names normalise to upper case, role values to lower case
+    for(const firstLookup of [ "tag", "role" ]) {
+        const names = [ "button", "x-widget" ];
+        const settings = { tagNames: names, roleAttributeValues: names };
+        const button = _mockElement("BUTTON");
+        const roleButton = _mockElement("DIV", { role: "button" });
+        const roleLink = _mockElement("SPAN", { role: "link" });
+        const lookups = (firstLookup === "tag")
+            ? [ [ "<button>", button ], [ "role=\"button\"", roleButton ] ]
+            : [ [ "role=\"button\"", roleButton ], [ "<button>", button ] ];
+
+        for(const [ label, element ] of lookups) {
+            assertTrue(
+                isActionableElement(element, settings),
+                `Invalid actionability (shared list, ${firstLookup} lookup first): ${label}`
+            );
+        }
+        assertTrue(
+            !isActionableElement(roleLink, settings),
+            `Invalid actionability (shared list, ${firstLookup} lookup first): role="link" is not listed`
+        );
+    }
+});
