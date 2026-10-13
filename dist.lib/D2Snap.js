@@ -1,34 +1,40 @@
-import { transformWithTextRank } from "./TextRank.js";
 import { Turndown } from "./Turndown.js";
 import { NodeType, NodeFilter } from "./enums.js";
-import { CONFIG } from "./var.CONFIG.js";
-import {
-  DEFAULT_ATTRIBUTE_SCORES
-} from "./var.DEFAULTS_ATTRIBUTE_SCORES.js";
-import {
-  DEFAULT_FILTER_ATTRIBUTE_NAMES,
-  DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES,
-  DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES
-} from "./var.DEFAULTS_ATTRIBUTES.js";
-import {
-  DEFAULT_CLASS_ACTIONABLE_TAG_NAMES,
-  DEFAULT_CLASS_TEXT_TAG_NAMES,
-  DEFAULT_FILTER_TAG_NAMES
-} from "./var.DEFAULTS_TAGS.js";
-import { ACTIONABLE_ROLE_ATTRIBUTE_VALUES as ACTIONABLE_ROLE_ATTRIBUTE_VALUES_ARRAY } from "./var.SEMANTICS_ATTRIBUTES.js";
-import { resolveDocument, resolveRoot, traverseDom } from "./util.dom.js";
-import { isInlineElement, isVoidElement } from "./util.html.js";
-import { postProcessDOM, postProcessHTML, preProcessDOM } from "./D2Snap.processing.js";
+import { CONFIG } from "./config.js";
+import { resolveDocument, resolveRoot, serializeSnapshotRoot, traverseDom } from "./util.dom.js";
+import { isVoidElement } from "./util.html.js";
+import { postProcessDOM, postProcessHTML, preProcessDOM } from "./processing.js";
 import { deepMerge } from "./util.obj.js";
+import { getByteLength, transformWithRanking } from "./util.text.js";
+import * as defaults from "./constants.defaults.js";
+import { assignUniqueIds } from "./options.normalizers.js";
 const WHITESPACE_REGEX = /^\s$/;
 const COLON_SCHEME_TAG_REGEX = /^[a-z][a-z0-9+.-]*:(?![a-z_][a-z0-9_.-]*$)/i;
-const ACTIONABLE_ROLE_ATTRIBUTE_VALUES = new Set(
-  ACTIONABLE_ROLE_ATTRIBUTE_VALUES_ARRAY.map((t) => t.toLowerCase())
-);
 function validateUnitParameter(name, value) {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
     throw new RangeError(`Parameter ${name} expects value in [0, 1], got ${value}`);
   }
+}
+function resolveD2SnapArgs(args) {
+  const [ratiosOrRE, optionsOrRA] = args;
+  if (typeof ratiosOrRE === "object" && ratiosOrRE !== null) {
+    const ratios = ratiosOrRE;
+    ratios.r !== void 0 && validateUnitParameter("r", ratios.r);
+    const r = ratios.r ?? 0;
+    return {
+      rE: ratios.rE ?? r,
+      rA: ratios.rA ?? r,
+      rT: ratios.rT ?? r,
+      options: optionsOrRA ?? {}
+    };
+  }
+  const [rE, rA, rT, options] = args;
+  return {
+    rE,
+    rA,
+    rT,
+    options: options ?? {}
+  };
 }
 function defineNonEnumerableProperty(obj, prop, value) {
   Object.defineProperty(obj, prop, {
@@ -39,7 +45,7 @@ function defineNonEnumerableProperty(obj, prop, value) {
   });
 }
 function getAttributeScore(attrName, attributeScores = new Map(
-  Object.entries(DEFAULT_ATTRIBUTE_SCORES).map((entry) => [entry[0].toLowerCase(), entry[1]])
+  Object.entries(defaults.ATTRIBUTE_SCORES).map((entry) => [entry[0].toLowerCase(), entry[1]])
 )) {
   let normalizedName = attrName.toLowerCase();
   if (!attributeScores.has(normalizedName)) {
@@ -55,61 +61,87 @@ function getAttributeScore(attrName, attributeScores = new Map(
   const attributeScore = attributeScores.get(normalizedName) ?? attributeScores.get(CONFIG.attributeScoresFallbackKey) ?? CONFIG.attributeScoresDefaultFallbackValue;
   return attributeScore;
 }
-function isActionableElement(elementNode, actionableElementTagNames = new Set(DEFAULT_CLASS_ACTIONABLE_TAG_NAMES), actionableRoleAttributeValues = ACTIONABLE_ROLE_ATTRIBUTE_VALUES) {
-  return actionableElementTagNames.has(elementNode.tagName.toUpperCase()) || actionableRoleAttributeValues.has(
-    elementNode.getAttribute("role")?.toLowerCase() ?? elementNode.role ?? ""
-  );
+function createVirtualDOM(document, rootElement) {
+  const inertDoc = document.implementation.createHTMLDocument("");
+  const rootElementClone = inertDoc.importNode(rootElement, true);
+  switch (rootElement.localName.toLowerCase()) {
+    case "html":
+      inertDoc.replaceChild(rootElementClone, inertDoc.documentElement);
+      break;
+    case "body":
+      inertDoc.documentElement.replaceChild(rootElementClone, inertDoc.body);
+      break;
+    default:
+      inertDoc.body.appendChild(rootElementClone);
+  }
+  const virtualDOM = rootElement.nodeType === NodeType.DOCUMENT_NODE ? inertDoc.documentElement : inertDoc.body;
+  const liveDOM = rootElement.localName.toLowerCase() === "html" ? rootElement.querySelector("body") ?? rootElement : rootElement;
+  return { inertDoc, virtualDOM, liveDOM };
 }
-function d2Snap(dom, rE, rA, rT, options = {}) {
+function resolveNormalizers(options) {
+  const normalizers = [...options.normalizers];
+  options.uniqueIDs && !normalizers.includes(assignUniqueIds) && normalizers.push(assignUniqueIds);
+  return normalizers;
+}
+function normalizeDOM(dom, options = {}) {
+  const document = resolveDocument(dom);
+  if (!document) throw new ReferenceError("Could not resolve a valid document object from DOM");
+  const rootElement = resolveRoot(dom);
+  const optionsWithDefaults = deepMerge({
+    classifiers: defaults.CLASSIFIERS,
+    normalizers: defaults.NORMALIZERS,
+    shadowDOM: false,
+    uniqueIDs: false
+  }, options);
+  const { inertDoc, virtualDOM, liveDOM } = createVirtualDOM(document, rootElement);
+  preProcessDOM(virtualDOM, liveDOM, inertDoc, {
+    classifiers: optionsWithDefaults.classifiers,
+    normalizers: resolveNormalizers(optionsWithDefaults),
+    shadowDOM: optionsWithDefaults.shadowDOM
+  });
+  return {
+    dom: virtualDOM,
+    get html() {
+      return virtualDOM.innerHTML;
+    },
+    get innerHTML() {
+      return virtualDOM.innerHTML;
+    },
+    get outerHTML() {
+      return virtualDOM.outerHTML;
+    }
+  };
+}
+function d2Snap(dom, ...args) {
+  const { rE, rA, rT, options } = resolveD2SnapArgs(args);
   validateUnitParameter("rE", rE);
   validateUnitParameter("rA", rA);
   validateUnitParameter("rT", rT);
   const document = resolveDocument(dom);
   if (!document) throw new ReferenceError("Could not resolve a valid document object from DOM");
   const rootElement = resolveRoot(dom);
-  const originalSize = rootElement.innerHTML.length;
+  const originalSize = getByteLength(serializeSnapshotRoot(rootElement));
   const optionsWithDefaults = deepMerge({
-    attributeScores: DEFAULT_ATTRIBUTE_SCORES,
-    classification: {
-      actionableElements: DEFAULT_CLASS_ACTIONABLE_TAG_NAMES,
-      textElements: DEFAULT_CLASS_TEXT_TAG_NAMES
-    },
+    attributeScores: defaults.ATTRIBUTE_SCORES,
+    classifiers: defaults.CLASSIFIERS,
     debug: false,
-    filter: {
-      attributes: DEFAULT_FILTER_ATTRIBUTE_NAMES,
-      dataURLs: true,
-      elements: DEFAULT_FILTER_TAG_NAMES,
-      emptyElements: true
-    },
+    filterEmptyElements: true,
     minify: true,
-    normalize: {
-      iconClasses: DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES,
-      labelAttributes: DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES,
-      svgToImg: true
-    },
+    normalizers: defaults.NORMALIZERS,
+    shadowDOM: false,
+    sentenceRanker: defaults.SENTENCE_RANKER,
     skip: {
       markdown: false,
       textRank: false
     },
     uniqueIDs: false
   }, options);
-  optionsWithDefaults.attributeScores = {
-    ...DEFAULT_ATTRIBUTE_SCORES,
-    ...options.attributeScoring ?? {},
-    ...options.attributeScores ?? {}
-  };
   const attributeScores = new Map(
     Object.entries(optionsWithDefaults.attributeScores).map((entry) => [entry[0].toLowerCase(), entry[1]])
   );
-  const actionableElementTagNames = new Set(
-    (optionsWithDefaults.classification?.actionableElements ?? []).map((tagName) => tagName.toUpperCase())
-  );
-  const textElementTagNames = new Set(
-    (optionsWithDefaults.classification?.textElements ?? []).map((tagName) => tagName.toUpperCase())
-  );
-  const _isActionableElement = (elementNode) => {
-    return isActionableElement(elementNode, actionableElementTagNames);
-  };
+  const _isActionableElement = optionsWithDefaults.classifiers.actionableElement;
+  const _isTextElement = optionsWithDefaults.classifiers.textFormattingElement;
+  const _sentenceRanker = optionsWithDefaults.sentenceRanker === null || optionsWithDefaults.skip?.textRank && !options.sentenceRanker ? (sentences) => sentences : optionsWithDefaults.sentenceRanker;
   const turndown = new Turndown([_isActionableElement]);
   function snapElementContainerNode(elementNode, rE2) {
     const considerContainerElement = (elementNode2) => {
@@ -130,13 +162,22 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
     }
     sourceElement.parentNode?.removeChild(sourceElement);
   }
+  let contextualFragmentRange = null;
+  let createTextNode = null;
   function snapElementTextFormattingNode(document2, elementNode) {
     if (optionsWithDefaults.skip?.markdown) return;
     if (elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
     if (_isActionableElement(elementNode)) return;
-    if (!textElementTagNames.has(elementNode.tagName.toUpperCase())) return;
+    if (!_isTextElement(elementNode)) return;
+    contextualFragmentRange ??= document2.createRange();
+    createTextNode ??= document2.createTextNode.bind(document2);
     const markdown = turndown.translate(elementNode.outerHTML);
-    const markdownNodesFragment = document2.createRange().createContextualFragment(markdown);
+    if (!/[<&\r\0]/.test(markdown)) {
+      const replacingNodes2 = markdown ? [createTextNode(markdown)] : [];
+      elementNode.replaceWith(...[createTextNode(" "), ...replacingNodes2, createTextNode(" ")]);
+      return replacingNodes2;
+    }
+    const markdownNodesFragment = contextualFragmentRange.createContextualFragment(markdown);
     const unwrapColonTaggedElements = (parent) => {
       for (const child of [...parent.childNodes]) {
         if (child.nodeType !== NodeType.ELEMENT_NODE) continue;
@@ -150,7 +191,7 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
     };
     unwrapColonTaggedElements(markdownNodesFragment);
     const replacingNodes = [...markdownNodesFragment.childNodes];
-    elementNode.replaceWith(...[document2.createTextNode(" "), ...replacingNodes, document2.createTextNode(" ")]);
+    elementNode.replaceWith(...[createTextNode(" "), ...replacingNodes, createTextNode(" ")]);
     const sourceTagName = elementNode.tagName.toLowerCase();
     return replacingNodes.filter((n) => n.nodeType !== NodeType.ELEMENT_NODE || n.tagName.toLowerCase() !== sourceTagName);
   }
@@ -162,7 +203,7 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
     const trailingSpace = WHITESPACE_REGEX.test(text.charAt(text.length - 1)) ? " " : "";
     textNode.textContent = [
       leadingSpace,
-      transformWithTextRank(text, 1 - rT2, !!optionsWithDefaults.skip?.textRank, true, optionsWithDefaults.textRankOptions),
+      transformWithRanking(text, 1 - rT2, _sentenceRanker, true),
       trailingSpace
     ].join("");
   }
@@ -176,39 +217,15 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
   const t = optionsWithDefaults.debug ? performance.now.bind(performance) : () => 0;
   let t0;
   const timings = {};
-  if (optionsWithDefaults.uniqueIDs) {
-    let i = 0;
-    traverseDom(
-      rootElement,
-      NodeFilter.SHOW_ELEMENT,
-      (node) => {
-        const elementNode = node;
-        if (isInlineElement(elementNode.tagName) && isVoidElement(elementNode.tagName)) return;
-        elementNode.setAttribute(CONFIG.uniqueAttributeName, i.toString());
-        i++;
-      }
-    );
-  }
   t0 = t();
-  const inertDoc = document.implementation.createHTMLDocument("");
-  const rootElementClone = inertDoc.importNode(rootElement, true);
-  switch (rootElement.localName.toLowerCase()) {
-    case "html":
-      inertDoc.replaceChild(rootElementClone, inertDoc.documentElement);
-      break;
-    case "body":
-      inertDoc.documentElement.replaceChild(rootElementClone, inertDoc.body);
-      break;
-    default:
-      inertDoc.body.appendChild(rootElementClone);
-  }
-  const virtualDOM = rootElement.nodeType === NodeType.DOCUMENT_NODE ? inertDoc.documentElement : inertDoc.body;
+  const { inertDoc, virtualDOM, liveDOM } = createVirtualDOM(document, rootElement);
   timings.clone = t() - t0;
   t0 = t();
-  preProcessDOM(virtualDOM, inertDoc, {
-    filter: optionsWithDefaults.filter,
-    normalize: optionsWithDefaults.normalize
-  }, _isActionableElement);
+  preProcessDOM(virtualDOM, liveDOM, inertDoc, {
+    classifiers: optionsWithDefaults.classifiers,
+    normalizers: resolveNormalizers(optionsWithDefaults),
+    shadowDOM: optionsWithDefaults.shadowDOM
+  });
   timings.preProcessing = t() - t0;
   t0 = t();
   traverseDom(
@@ -257,7 +274,7 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
   }
   t0 = t();
   postProcessDOM(virtualDOM, {
-    filter: optionsWithDefaults.filter,
+    filterEmptyElements: optionsWithDefaults.filterEmptyElements,
     minify: optionsWithDefaults.minify
   }, _isActionableElement);
   timings.domPostProcessing = t() - t0;
@@ -291,10 +308,14 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
     meta: {
       originalSize,
       get snapshotSize() {
-        return getHTML("innerHTML").length;
+        return getByteLength(getHTML("innerHTML"));
       },
       get sizeRatio() {
-        return getHTML("innerHTML").length / originalSize;
+        const snapshotSize = getByteLength(getHTML("innerHTML"));
+        if (originalSize === 0) {
+          return snapshotSize === 0 ? 1 : Infinity;
+        }
+        return snapshotSize / originalSize;
       },
       get tokenEstimate() {
         return Math.round(getHTML("innerHTML").length / 4);
@@ -307,5 +328,6 @@ function d2Snap(dom, rE, rA, rT, options = {}) {
 export {
   d2Snap,
   getAttributeScore,
-  isActionableElement
+  normalizeDOM,
+  resolveD2SnapArgs
 };

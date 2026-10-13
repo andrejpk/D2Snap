@@ -1,36 +1,4 @@
-import { getAttributeScore, isActionableElement } from "../../dist.lib/D2Snap.js";
-
-
-const MOCKED_ACTIONABLE_ELEMENT_TAG_NAMES = new Set([
-    "A",
-    "BUTTON"
-]);
-
-const MOCKED_ACTIONABLE_ELEMENT_ROLE_ATTRIBUTE_VALUES = new Set([
-    "button"
-]);
-
-
-const _mockGetAttribute = (name, attrsDict = {}) => {
-    return attrsDict[name];
-};
-
-const _mockElement = (tagName, attrsDict = {}) => {
-    return {
-        tagName,
-        getAttribute(name) {
-            return _mockGetAttribute(name, attrsDict);
-        }
-    };
-};
-
-const _wrapIsActionableElement = element => {
-    return isActionableElement(
-        element,
-        MOCKED_ACTIONABLE_ELEMENT_TAG_NAMES,
-        MOCKED_ACTIONABLE_ELEMENT_ROLE_ATTRIBUTE_VALUES
-    );
-};
+import { getAttributeScore, resolveD2SnapArgs } from "../../dist.lib/D2Snap.js";
 
 
 await test("Get attribute scores", () => {
@@ -84,45 +52,72 @@ await test("Get attribute scores", () => {
     );
 });
 
-await test("Check element actionability", () => {
-    // Disjunction checks
-
+await test("Get attribute scores (default scores)", () => {
     assertEqual(
-        _wrapIsActionableElement(_mockElement("BUTTON", {
-            role: "button"
-        })),
-        true,
-        "Invalid is-actionable classification (true axes: [1, 1])"
+        getAttributeScore("HREF"),
+        0.91,
+        "Invalid retireved attribute score ('HREF'; default scores, case-insensitive)"
     );
     assertEqual(
-        _wrapIsActionableElement(_mockElement("BUTTON", {
-            role: "static"
-        })),
-        true,
-        "Invalid is-actionable classification (true axes: [1, 0 (explicit)])"
+        getAttributeScore("aria-expanded"),
+        0.62,
+        "Invalid retireved attribute score ('aria-expanded'; default scores, wildcard)"
     );
     assertEqual(
-        _wrapIsActionableElement(_mockElement("A")),
-        true,
-        "Invalid is-actionable classification (true axes: [1, 0 (implicit)])"
-    );
-    assertEqual(
-        _wrapIsActionableElement(_mockElement("DIV", {
-            role: "button"
-        })),
-        true,
-        "Invalid is-actionable classification (true axex: [0, 1])"
-    );
-    assertEqual(
-        _wrapIsActionableElement(_mockElement("SECTION", {
-            role: "static"
-        })),
-        false,
-        "Invalid is-actionable classification (true axes: [0, 0 (explicit)])"
-    );
-    assertEqual(
-        _wrapIsActionableElement(_mockElement("section")),
-        false,
-        "Invalid is-actionable classification (true axes: [0, 0 (implicit)])"
+        getAttributeScore("data-unknown"),
+        0,
+        "Invalid retireved attribute score ('data-unknown'; default scores, fallback)"
     );
 });
+
+await test("Resolve snapshot arguments (specific ratios)", () => {
+    assertEqual(
+        resolveD2SnapArgs([ 0.1, 0.2, 0.3, { debug: true } ]),
+        { rE: 0.1, rA: 0.2, rT: 0.3, options: { debug: true } },
+        "Invalid resolved arguments (specific ratios, options)"
+    );
+    assertEqual(
+        resolveD2SnapArgs([ 0.1, 0.2, 0.3 ]),
+        { rE: 0.1, rA: 0.2, rT: 0.3, options: {} },
+        "Invalid resolved arguments (specific ratios, no options)"
+    );
+});
+
+await test("Resolve snapshot arguments (ratios object)", () => {
+    for(const [ ratios, expected, label ] of [
+        [ { r: 0.5 }, { rE: 0.5, rA: 0.5, rT: 0.5 }, "r" ],
+        [ { rE: 0.8 }, { rE: 0.8, rA: 0, rT: 0 }, "specific ratio; others fall back to 0" ],
+        [ { r: 0.5, rT: 0 }, { rE: 0.5, rA: 0.5, rT: 0 }, "specific ratio overrides r" ],
+        [ { r: 0.5, rE: 0.2, rA: 0.4, rT: 0.6 }, { rE: 0.2, rA: 0.4, rT: 0.6 }, "all specific ratios override r" ],
+        [ {}, { rE: 0, rA: 0, rT: 0 }, "no ratios; no reduction" ]
+    ]) {
+        assertEqual(
+            resolveD2SnapArgs([ ratios ]),
+            { ...expected, options: {} },
+            `Invalid resolved arguments (ratios object: ${label})`
+        );
+    }
+
+    assertEqual(
+        resolveD2SnapArgs([ { r: 0.5 }, { minify: false } ]),
+        { rE: 0.5, rA: 0.5, rT: 0.5, options: { minify: false } },
+        "Invalid resolved arguments (ratios object, options)"
+    );
+});
+
+await test("Resolve snapshot arguments (invalid r)", () => {
+    for(const r of [ -1, 1.5, NaN, Infinity ]) {
+        let err;
+        try {
+            resolveD2SnapArgs([ { r } ]);
+        } catch(e) {
+            err = e;
+        }
+
+        assertTrue(
+            (err instanceof RangeError) && err.message.startsWith("Parameter r "),
+            `Invalid error for r = ${r}: ${err?.message ?? "(no error)"}`
+        );
+    }
+});
+

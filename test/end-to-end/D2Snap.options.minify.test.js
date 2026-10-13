@@ -3,17 +3,17 @@ import { readTestFile, writeActual, readExpected } from "../test.util.js";
 import { d2Snap } from "../../dist.lib/api.js";
 
 
-const PIZZA_HTML = await readTestFile("pizza/pizza");
+const HOTDOG_HTML = await readTestFile("hotdog/hotdog.options.minify");
 
 
 await test("Take DOM snapshot (options.minify)", async () => {
-    const snapshotTrue = await d2Snap(PIZZA_HTML, 0.5, 0.5, 0.5, {
+    const snapshotTrue = await d2Snap(HOTDOG_HTML, 0.5, 0.5, 0.5, {
         debug: false,
         minify: true
     });
 
-    await writeActual("pizza/pizza.options.minify.true", snapshotTrue.html);
-    const expectedTrue = await readExpected("pizza/pizza.options.minify.true");
+    await writeActual("hotdog/hotdog.options.minify.true", snapshotTrue.html);
+    const expectedTrue = await readExpected("hotdog/hotdog.options.minify.true");
 
     assertEqual(
         snapshotTrue.html,
@@ -27,13 +27,13 @@ await test("Take DOM snapshot (options.minify)", async () => {
         "Invalid DOM snapshot (minify = true)"
     );
 
-    const snapshotFalse = await d2Snap(PIZZA_HTML, 0.5, 0.5, 0.5, {
+    const snapshotFalse = await d2Snap(HOTDOG_HTML, 0.5, 0.5, 0.5, {
         debug: false,
         minify: false
     });
 
-    await writeActual("pizza/pizza.options.minify.false", snapshotFalse.html);
-    const expectedFalse = await readExpected("pizza/pizza.options.minify.false");
+    await writeActual("hotdog/hotdog.options.minify.false", snapshotFalse.html);
+    const expectedFalse = await readExpected("hotdog/hotdog.options.minify.false");
 
     assertEqual(
         snapshotFalse.html,

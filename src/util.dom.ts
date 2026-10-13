@@ -1,6 +1,6 @@
 import type { DOM, TextNode } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
-import { isInlineElement, isRawTextElement } from "./util.html.js";
+import { isInlineElement, isWhitespacePreservingElement } from "./util.html.js";
 
 
 export async function ensureDOM(domOrStringOrBuffer: DOM | string | Buffer): Promise<DOM> {
@@ -57,7 +57,65 @@ export function resolveRoot(node: DOM): Element {
 	return (node as Document)?.body ?? (node as Document)?.documentElement ?? node;
 }
 
-// Pre-order DFS: child before parent.
+// Serializes a root as covered by snapshots: the BODY contents for document roots
+// (HTML, BODY), the element itself otherwise (snapshots wrap it in a BODY).
+export function serializeSnapshotRoot(rootElement: Element): string {
+	switch(rootElement.localName.toLowerCase()) {
+		case "html":
+			return (rootElement.querySelector("body") ?? rootElement).innerHTML;
+		case "body":
+			return rootElement.innerHTML;
+		default:
+			return rootElement.outerHTML;
+	}
+}
+
+function resolveSlottedNodes(node: Node): Node[] {
+	// Slots only distribute within shadow trees.
+	if(node.nodeName !== "SLOT" || !(node.getRootNode() as ShadowRoot).host) return [ node ];
+
+	const assignedNodes: Node[] = (node as HTMLSlotElement).assignedNodes({ flatten: true });
+
+	return assignedNodes.length
+		? assignedNodes
+		: [ ...node.childNodes ].flatMap((childNode: Node) => resolveSlottedNodes(childNode));
+}
+
+// Child nodes as rendered: (open) shadow root content, slots resolved to the assigned
+// light nodes (or fallback content). Unassigned light nodes of a shadow host are skipped.
+export function resolveComposedChildNodes(node: Node): Node[] {
+	return [ ...((node as Element).shadowRoot ?? node).childNodes ]
+		.flatMap((childNode: Node) => resolveSlottedNodes(childNode));
+}
+
+// Nodes that took the place of a detached node (between its former siblings).
+export function resolveReplacingNodes(
+	parentNode: Node | null,
+	previousSibling: Node | null,
+	nextSibling: Node | null
+): Node[] {
+	if(!parentNode) return [];
+	if(previousSibling && (previousSibling.parentNode !== parentNode)) return [];
+	if(nextSibling && (nextSibling.parentNode !== parentNode)) return [];
+
+	const replacingNodes: Node[] = [];
+
+	let currentNode: Node | null = previousSibling
+		? previousSibling.nextSibling
+		: parentNode.firstChild;
+
+	while(currentNode && (currentNode !== nextSibling)) {
+		replacingNodes.push(currentNode);
+
+		currentNode = currentNode.nextSibling;
+	}
+
+	return replacingNodes;
+}
+
+// Pre-order DFS: parent before child.
+// Children are read after the callback, so the latest DOM is traversed.
+// Attributes are visited (as nodes) before their element (as in normalization order).
 export function traverseDom<T>(
 	root: Element,
 	filter: number = NodeFilter.SHOW_ALL,
@@ -66,6 +124,16 @@ export function traverseDom<T>(
 	const showElement: boolean = ((filter & NodeFilter.SHOW_ELEMENT) !== 0);
 	const showText: boolean = ((filter & NodeFilter.SHOW_TEXT) !== 0);
 	const showComment = ((filter & NodeFilter.SHOW_COMMENT) !== 0);
+	const showAttribute: boolean = ((filter & NodeFilter.SHOW_ATTRIBUTE) !== 0);
+
+	// Connected root check: 'isConnected' instead of an ancestor walk ('contains').
+	// Assumes nodes are not moved out of the root into the same document.
+	const isRootConnected: boolean = root.isConnected;
+	const isInRoot = (node: Node): boolean => {
+		return isRootConnected
+			? node.isConnected
+			: root.contains(node);
+	};
 
 	// Pre-order DFS
 	const stack: Node[] = [];
@@ -77,42 +145,62 @@ export function traverseDom<T>(
 	while(stack.length) {
 		const node: Node = stack.pop()!;
 
-		if(!root.contains(node)) continue;
+		if(!isInRoot(node)) continue;
 
-		const children: Node[] = [ ...node.childNodes ];
-		const childIndex = stack.length;
-		const childCount = children.length;
-		for(let i = children.length - 1; i >= 0; i--) {
-			stack.push(children[i]);
-		}
+		const parentNode: Node | null = node.parentNode;
+		const previousSibling: Node | null = node.previousSibling;
+		const nextSibling: Node | null = node.nextSibling;
 
 		const passes = (filter === NodeFilter.SHOW_ALL)
             || ((node.nodeType === NodeType.ELEMENT_NODE) && showElement)
             || ((node.nodeType === NodeType.TEXT_NODE) && showText)
             || ((node.nodeType === NodeType.COMMENT_NODE) && showComment);
 
-		if(!passes) continue;
+		if(showAttribute && (node.nodeType === NodeType.ELEMENT_NODE)) {
+			for(const attr of [ ...(node as Element).attributes ]) {
+				if(!isInRoot(node)) break;
+				// Removed by a previous callback
+				if(attr.ownerElement !== node) continue;
 
-		const replacingNodes: Node[] | void = cb(node as T);
+				cb(attr as T);
+			}
+		}
 
-		if(!replacingNodes?.length) continue;
+		const replacingNodes: Node[] | undefined = (passes && isInRoot(node))
+			? (cb(node as T) as Node[] | undefined)
+			: undefined;
 
-		// Swap the original (now-detached) children on the stack with the
-		// replacement nodes. Insert reversed so the first replacement is at
-		// the top of the stack and gets popped first.
-		stack.splice(childIndex, childCount, ...[ ...replacingNodes ].reverse());
+		// Attached: continue with the latest children.
+		// Detached: continue with the returned replacement nodes, else with nodes that replace the original.
+		const nextNodes: Node[] = isInRoot(node)
+			? [ ...node.childNodes ]
+			: (replacingNodes ?? resolveReplacingNodes(parentNode, previousSibling, nextSibling));
+
+		// Insert reversed so the first node is at the top of the stack: pre-order.
+		for(let i = nextNodes.length - 1; i >= 0; i--) {
+			stack.push(nextNodes[i]);
+		}
 	}
 }
 
+function isWithinWhitespacePreservingElement(element: Element, domRoot: Element): boolean {
+	for(let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+		if(isWhitespacePreservingElement(ancestor.tagName)) return true;
+		if(ancestor === domRoot) break;
+	}
+
+	return false;
+}
+
 export function minifyDOM(domRoot: Element): void {
-	traverseDom<HTMLElement>(
+	traverseDom<TextNode>(
 		domRoot,
 		NodeFilter.SHOW_TEXT,
 		(textNode: TextNode) => {
 			const parent = textNode.parentElement;
 			if(!parent) return;
 
-			if(isRawTextElement(parent.tagName.toLowerCase())) return;
+			if(isWithinWhitespacePreservingElement(parent, domRoot)) return;
 
 			const value = textNode.nodeValue ?? "";
 			if(!value) return;
@@ -121,14 +209,14 @@ export function minifyDOM(domRoot: Element): void {
 		}
 	);
 
-	traverseDom<HTMLElement>(
+	traverseDom<TextNode>(
 		domRoot,
 		NodeFilter.SHOW_TEXT,
 		(textNode: TextNode) => {
 			const parent = textNode.parentElement;
 			if(!parent) return;
 
-			if(isRawTextElement(parent.tagName.toLowerCase())) return;
+			if(isWithinWhitespacePreservingElement(parent, domRoot)) return;
 
 			let value = textNode.nodeValue ?? "";
 			if(!value) {
@@ -229,7 +317,7 @@ export function minifyDOM(domRoot: Element): void {
 		}
 	);
 
-	traverseDom<HTMLElement>(
+	traverseDom<TextNode>(
 		domRoot,
 		NodeFilter.SHOW_TEXT,
 		(textNode: TextNode) => {

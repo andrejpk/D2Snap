@@ -3,6 +3,7 @@ function deepMerge(target, source) {
   for (const key of Object.keys(source)) {
     const targetValue = result[key];
     const sourceValue = source[key];
+    if (sourceValue === void 0) continue;
     if (targetValue !== null && sourceValue !== null && typeof targetValue === "object" && typeof sourceValue === "object" && !Array.isArray(targetValue) && !Array.isArray(sourceValue)) {
       result[key] = deepMerge(
         targetValue,

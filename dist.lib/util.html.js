@@ -1,4 +1,4 @@
-import { INLINE_TAG_NAMES, RAW_TEXT_TAG_NAMES, VOID_TAG_NAMES } from "./var.SEMANTICS_TAGS.js";
+import { INLINE_TAG_NAMES, PREFORMATTED_TAG_NAMES, RAW_TEXT_TAG_NAMES, VOID_TAG_NAMES } from "./constants.semantics.js";
 function tokenize(html) {
   const tokens = [];
   const n = html.length;
@@ -8,7 +8,7 @@ function tokenize(html) {
       const start = i;
       while (i < n && html[i] !== "<") i++;
       const raw2 = html.slice(start, i);
-      if (raw2.trim()) tokens.push({
+      tokens.push({
         kind: "text",
         raw: raw2
       });
@@ -79,7 +79,7 @@ function tokenize(html) {
       });
       continue;
     }
-    if (isRawTextElement(tagName)) {
+    if (isWhitespacePreservingElement(tagName)) {
       const rest = html.slice(i);
       const m = rest.match(new RegExp(`</${tagName}\\s*>`, "i"));
       if (!m) {
@@ -112,6 +112,9 @@ function isInlineElement(tagName) {
 }
 function isRawTextElement(tagName) {
   return RAW_TEXT_TAG_NAMES.has(tagName.toUpperCase());
+}
+function isWhitespacePreservingElement(tagName) {
+  return isRawTextElement(tagName) || PREFORMATTED_TAG_NAMES.has(tagName.toUpperCase());
 }
 function formatHTML(html, indentSize = 2) {
   const indent = " ".repeat(indentSize);
@@ -192,5 +195,6 @@ export {
   formatHTML,
   isInlineElement,
   isRawTextElement,
-  isVoidElement
+  isVoidElement,
+  isWhitespacePreservingElement
 };

@@ -1,20 +1,17 @@
 import { deepMerge } from "./util.obj.js";
-const SENTENCE_DELIMITER_REGEX = /(?<=\p{Sentence_Terminal})\s|\n|\r/gu;
 const TOKEN_PATTERN_REGEX = /[\p{L}\p{N}]+/gu;
+const DEFAULT_SETTINGS = Object.freeze({
+  damping: 0.75,
+  maxIterations: 20,
+  minSimilarity: 0.1,
+  tolerance: 1e-4
+});
 function initArray(n) {
   return Array.from({ length: n }, () => null);
 }
-function tokenizeSentences(text) {
-  return text.split(SENTENCE_DELIMITER_REGEX).map((rawSentence) => rawSentence.trim()).filter((sentence) => !!sentence);
-}
 function textRank(sentences, options = {}) {
   if (!sentences.length) return [];
-  const optionsWithDefaults = deepMerge({
-    damping: 0.75,
-    maxIterations: 20,
-    minSimilarity: 0.1,
-    tolerance: 1e-4
-  }, options);
+  const optionsWithDefaults = deepMerge({ ...DEFAULT_SETTINGS }, options);
   const sentenceCount = sentences.length;
   const termFrequencyPerSentence = initArray(sentenceCount);
   const sentenceVectorNorms = new Float64Array(sentenceCount);
@@ -127,23 +124,11 @@ function textRank(sentences, options = {}) {
     score: currentScores[i]
   })).sort((a, b) => b.score - a.score);
 }
-function transformWithTextRank(text, ratio = 0.5, simple = false, noEmpty = false, textRankOptions = {}) {
-  const sentences = tokenizeSentences(text);
-  const k = Math.min(
-    Math.max(
-      Math.ceil(sentences.length * ratio),
-      +noEmpty
-    ),
-    sentences.length
-  );
-  if (sentences.length <= k) return sentences.join("\n");
-  if (simple) {
-    return sentences.slice(0, k).join("\n");
-  }
-  return textRank(sentences, textRankOptions).slice(0, k).sort((a, b) => a.index - b.index).map((obj) => obj.sentence).join("\n");
+function rankSentences(sentences, options = {}) {
+  return textRank(sentences, options).map((obj) => obj.sentence);
 }
 export {
-  textRank,
-  tokenizeSentences,
-  transformWithTextRank
+  DEFAULT_SETTINGS,
+  rankSentences,
+  textRank
 };

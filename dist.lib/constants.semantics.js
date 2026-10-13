@@ -1,0 +1,94 @@
+const VOID_TAG_NAMES = /* @__PURE__ */ new Set([
+  "AREA",
+  "BASE",
+  "BR",
+  "COL",
+  "EMBED",
+  "HR",
+  "IMG",
+  "INPUT",
+  "LINK",
+  "META",
+  "PARAM",
+  "SOURCE",
+  "TRACK",
+  "WBR"
+]);
+const INLINE_TAG_NAMES = /* @__PURE__ */ new Set([
+  "A",
+  "ABBR",
+  "B",
+  "BDI",
+  "BDO",
+  "CITE",
+  "CODE",
+  "DATA",
+  "DFN",
+  "EM",
+  "I",
+  "KBD",
+  "MARK",
+  "Q",
+  "RP",
+  "RT",
+  "RUBY",
+  "S",
+  "SAMP",
+  "SMALL",
+  "SPAN",
+  "STRONG",
+  "SUB",
+  "SUP",
+  "TIME",
+  "U",
+  "VAR",
+  "WBR",
+  "BR"
+]);
+const RAW_TEXT_TAG_NAMES = /* @__PURE__ */ new Set([
+  "IFRAME",
+  "NOSCRIPT",
+  "SCRIPT",
+  "STYLE",
+  "TEXTAREA",
+  "TITLE"
+]);
+const PREFORMATTED_TAG_NAMES = /* @__PURE__ */ new Set([
+  "PRE"
+]);
+const NON_RENDERED_TAG_NAMES = /* @__PURE__ */ new Set([
+  "SCRIPT",
+  "STYLE",
+  "NOSCRIPT",
+  "TEMPLATE"
+]);
+const SVG_LABEL_TAG_NAMES = [
+  "title",
+  "desc"
+];
+const ACTIONABLE_ROLE_ATTRIBUTE_VALUES = [
+  "button",
+  "checkbox",
+  "link",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "radio",
+  "searchbox",
+  "slider",
+  "spinbutton",
+  "switch",
+  "textbox",
+  "combobox",
+  "listbox"
+];
+export {
+  ACTIONABLE_ROLE_ATTRIBUTE_VALUES,
+  INLINE_TAG_NAMES,
+  NON_RENDERED_TAG_NAMES,
+  PREFORMATTED_TAG_NAMES,
+  RAW_TEXT_TAG_NAMES,
+  SVG_LABEL_TAG_NAMES,
+  VOID_TAG_NAMES
+};

@@ -1,5 +1,4 @@
-import { d2Snap, adaptiveD2Snap } from "./api.js";
+import * as D2SnapAPI from "./api.js";
 window.D2Snap = {
-  d2Snap,
-  adaptiveD2Snap
+  ...D2SnapAPI
 };

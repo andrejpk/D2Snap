@@ -3,7 +3,7 @@ import { readTestFile, writeActual, readExpected, flattenDOMSnapshot } from "../
 import { d2Snap } from "../../dist.lib/api.js";
 
 
-const PIZZA_HTML = await readTestFile("pizza/pizza");
+const PIZZA_HTML = await readTestFile("pizza/pizza.options.attributeScores");
 
 
 await test("Take DOM snapshot (options.attributeScores)", async () => {

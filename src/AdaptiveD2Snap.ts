@@ -17,6 +17,11 @@ export interface AdaptiveParameters {
     rT: number;
 }
 
+export type AdaptiveD2SnapResult = D2SnapResult & {
+    parameters: AdaptiveParameters;
+    adaptiveIterations: number;
+};
+
 
 function* generateHalton() {
 	const halton = (index: number, base: number) => {
@@ -52,10 +57,7 @@ export function adaptiveD2Snap(
 	maxTokens: number = 2**15,	// 32768
 	maxIterations: number = 5,
 	options: DeepPartial<D2SnapOptions> = {}
-): D2SnapResult & {
-    parameters: AdaptiveParameters;
-    adaptiveIterations: number;
-} {
+): AdaptiveD2SnapResult {
 	const haltonGenerator = generateHalton();
 	const parameters: AdaptiveParameters = {
 		rE: 0, rA: 0, rT: 0

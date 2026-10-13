@@ -1,4 +1,4 @@
-import { INLINE_TAG_NAMES, RAW_TEXT_TAG_NAMES, VOID_TAG_NAMES } from "./var.SEMANTICS_TAGS.js";
+import { INLINE_TAG_NAMES, PREFORMATTED_TAG_NAMES, RAW_TEXT_TAG_NAMES, VOID_TAG_NAMES } from "./constants.semantics.js";
 
 
 type Token =
@@ -25,7 +25,9 @@ function tokenize(html: string): Token[] {
 
 			const raw: string = html.slice(start, i);
 
-			if(raw.trim()) tokens.push({
+			// Whitespace-only text is kept: between inline elements, it is a visible space
+			// (the formatter collapses it within inline runs, and trims it between blocks).
+			tokens.push({
 				kind: "text",
 				raw
 			});
@@ -127,7 +129,7 @@ function tokenize(html: string): Token[] {
 			continue;
 		}
 
-		if(isRawTextElement(tagName)) {
+		if(isWhitespacePreservingElement(tagName)) {
 			const rest: string = html.slice(i);
 			const m = rest.match(new RegExp(`</${tagName}\\s*>`, "i"));
 
@@ -173,6 +175,11 @@ export function isInlineElement(tagName: string): boolean {
 
 export function isRawTextElement(tagName: string): boolean {
 	return RAW_TEXT_TAG_NAMES.has(tagName.toUpperCase());
+}
+
+// Whitespace is content, not formatting: raw text elements and preformatted elements.
+export function isWhitespacePreservingElement(tagName: string): boolean {
+	return isRawTextElement(tagName) || PREFORMATTED_TAG_NAMES.has(tagName.toUpperCase());
 }
 
 export function formatHTML(html: string, indentSize: number = 2): string {

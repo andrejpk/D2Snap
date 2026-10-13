@@ -4,12 +4,9 @@ import { createHash } from "node:crypto";
 
 import { FILES_DIRECTORY_PATH as TEST_FILES_DIRECTORY_PATH, writeActual } from "../../test.util.js";
 
-import { DEFAULT_ATTRIBUTE_SCORES } from "../../../dist.lib/var.DEFAULTS_ATTRIBUTE_SCORES.js";
-import { DEFAULT_FILTER_ATTRIBUTE_NAMES } from "../../../dist.lib/var.DEFAULTS_ATTRIBUTES.js";
-import { DEFAULT_CLASS_TEXT_TAG_NAMES, DEFAULT_FILTER_TAG_NAMES } from "../../../dist.lib/var.DEFAULTS_TAGS.js";
 import { formatHTML, isVoidElement, isRawTextElement } from "../../../dist.lib/util.html.js";
-import { getAttributeScore, isActionableElement } from "../../../dist.lib/D2Snap.js";
-import { d2Snap } from "../../../dist.lib/api.js";
+import { getAttributeScore } from "../../../dist.lib/D2Snap.js";
+import { d2Snap, defaults } from "../../../dist.lib/api.js";
 
 
 const IGNORED_HASHES_PATH = join(import.meta.dirname, "ignored-hashes.txt");
@@ -29,12 +26,13 @@ const DOWNSAMPLING_RATIOS = {
 };
 // Stay close to defaults.
 const DOWNSAMPLING_ATTRIBUTE_SCORES = {
-    ...DEFAULT_ATTRIBUTE_SCORES,
+    ...defaults.ATTRIBUTE_SCORES,
 
     "aria-labelledby": 1.0,
     "aria-label": 1.0,
     "text": 1.0,
 };
+const DOWNSAMPLING_ICON_CLASS_PREFIXES = [ "fa", "icon", "ti" ];
 const DOWNSAMPLING_ARGS = [
     DOWNSAMPLING_RATIOS.rE,
     DOWNSAMPLING_RATIOS.rA,
@@ -42,17 +40,27 @@ const DOWNSAMPLING_ARGS = [
     {
         debug: true,
         attributeScores: DOWNSAMPLING_ATTRIBUTE_SCORES,
-        normalize: {
-            iconClasses: [ "fa", "icon", "ti" ]
-        }
+        // Default normalizers, with icon fonts
+        normalizers: defaults.NORMALIZERS
+            .map(normalizer => (normalizer === defaults.normalizers.normalizeIconClassesToImgs)
+                ? (virtualNode, liveNode, context) => normalizer(virtualNode, liveNode, context, {
+                    iconClassPrefixes: DOWNSAMPLING_ICON_CLASS_PREFIXES
+                })
+                : normalizer)
     }
 ];
 
 
-const FILTERED_TAG_NAMES = new Set(DEFAULT_FILTER_TAG_NAMES.map(t => t.toUpperCase()));
-const FILTERED_ATTRIBUTE_NAMES = new Set(DEFAULT_FILTER_ATTRIBUTE_NAMES.map(a => a.toLowerCase()));
-const TEXT_FORMATTING_TAG_NAMES = new Set(DEFAULT_CLASS_TEXT_TAG_NAMES.map(t => t.toUpperCase()));
+const isActionableElement = defaults.classifiers.isActionableElement;
+
+const FILTERED_TAG_NAMES = new Set(defaults.NORMALIZER_SETTINGS.filterNoiseElements.tagNames.map(t => t.toUpperCase()));
+const FILTERED_ATTRIBUTE_NAMES = new Set(defaults.NORMALIZER_SETTINGS.filterAttributes.attributeNames.map(a => a.toLowerCase()));
+const DATA_URL_ATTRIBUTE_NAMES = new Set(defaults.NORMALIZER_SETTINGS.filterDataUrls.attributeNames.map(a => a.toLowerCase()));
+const DATA_URL_VALUE_PATTERN = defaults.NORMALIZER_SETTINGS.filterDataUrls.valuePattern;
+const TEXT_FORMATTING_TAG_NAMES = new Set(defaults.CLASSIFIER_SETTINGS.isTextElement.tagNames.map(t => t.toUpperCase()));
 const TEXT_FORMATTING_PASSTHROUGH_TAG_NAMES = new Set([ "TABLE" ]);
+// Bogus elements re-parsed from markdown autolinks (e.g., <https:>); namespaced elements (e.g., <ns:widget>) have a name after the colon.
+const SCHEME_TAG_NAME_REGEX = /^[a-z][a-z0-9+.-]*:$/i;
 
 
 function printFormatHTML(html, maxLength = 500) {
@@ -91,18 +99,15 @@ async function traverseDOM(domRoot, nodeFn) {
     // Deepest nodes first
     elementNodes.sort((a, b) => b.depth - a.depth);
 
-    let stopDepth = null;
-
-    for(const { node, depth } of elementNodes) {
-        if(stopDepth !== null && depth !== stopDepth) {
-            return TRAVERSE_SIGNAL.STOP_AFTER_LEVEL;
-        }
-
+    for(const { node } of elementNodes) {
         await nodeFn(
             node,
             [...node.attributes],
             [...node.childNodes].filter(
                 child => child.nodeType === 3
+            ),
+            [...node.childNodes].filter(
+                child => child.nodeType === 8
             )
         );
     }
@@ -121,15 +126,43 @@ function checkElementNode_noFilter(element, errorContextStr) {
 }
 
 function checkElementNode_SVGNormalized(element, errorContextStr) {
-    // Assert SVG was noramlized to IMG.
+    // Assert SVG was normalized to IMG.
     return assertTrue(
         element.tagName.toUpperCase() !== "SVG",
         contextMessage("SVG element is normalized to <img>", errorContextStr)
     );
 }
 
+function checkElementNode_voidHasNoChildNodes(element, errorContextStr) {
+    // Assert void element has no child nodes (not serialized, i.e., silently lost; e.g., merged into by a container).
+    if(!isVoidElement(element.tagName)) return true;
+
+    return assertTrue(
+        !element.childNodes.length,
+        contextMessage(`Void element (${element.tagName.toUpperCase()}) has no child nodes`, errorContextStr)
+    );
+}
+
+function checkElementNode_noSchemeTag(element, errorContextStr) {
+    // Assert element is no bogus scheme-tag element (re-parsed from a markdown autolink).
+    return assertTrue(
+        !SCHEME_TAG_NAME_REGEX.test(element.tagName),
+        contextMessage(`Element (${element.tagName.toUpperCase()}) is no scheme-tag artifact`, errorContextStr)
+    );
+}
+
+function checkElementNode_notEmpty(element, errorContextStr) {
+    // Assert element is not empty (filtered by default), unless actionable or void.
+    if(isActionableElement(element) || isVoidElement(element.tagName)) return true;
+
+    return assertTrue(
+        !!element.children.length || !!element.textContent.trim().length,
+        contextMessage(`Empty element (${element.tagName.toUpperCase()}) is removed`, errorContextStr)
+    );
+}
+
 function checkElementNode_hasDescriptor(element, errorContextStr) {
-    // Assert actionable element has an idiomatic descripto; in general (recoverable) direct descendant text contents.
+    // Assert actionable element has an idiomatic descriptor; in general (recoverable) direct descendant text contents.
     if(
         !isActionableElement(element)   // check all?
         || isVoidElement(element.tagName)
@@ -169,10 +202,9 @@ function checkElementNode_textWasFormatted(element, errorContextStr) {
     if(!TEXT_FORMATTING_TAG_NAMES.has(tagName)) return true;
     if(TEXT_FORMATTING_PASSTHROUGH_TAG_NAMES.has(tagName)) return true;
 
-    for(let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
-        if(isActionableElement(ancestor)) return true;
-
-        if(ancestor !== element && TEXT_FORMATTING_PASSTHROUGH_TAG_NAMES.has(ancestor.tagName.toUpperCase())) return true;
+    // Contents of passed-through elements are kept (also within actionable elements, text formatting is converted).
+    for(let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        if(TEXT_FORMATTING_PASSTHROUGH_TAG_NAMES.has(ancestor.tagName.toUpperCase())) return true;
     }
 
     return assertTrue(
@@ -185,6 +217,9 @@ function checkElementNode(element, errorContextStr) {
     return (
         checkElementNode_noFilter(element, errorContextStr)
         && checkElementNode_SVGNormalized(element, errorContextStr)
+        && checkElementNode_voidHasNoChildNodes(element, errorContextStr)
+        && checkElementNode_noSchemeTag(element, errorContextStr)
+        && checkElementNode_notEmpty(element, errorContextStr)
         && checkElementNode_hasDescriptor(element, errorContextStr)
         && checkElementNode_textWasFormatted(element, errorContextStr)
     );
@@ -213,9 +248,11 @@ function checkAttribute_scoresAboveThreshold(attr, errorContextStr) {
 }
 
 function checkAttribute_valueIsNoDataURL(attr, errorContextStr) {
-    // Assert attribute value is no data URL (filtered by default).
+    // Assert attribute value is no data URL (filtered by default, for the configured attributes).
+    if(!DATA_URL_ATTRIBUTE_NAMES.has(attr.name.toLowerCase())) return true;
+
     return assertTrue(
-        !/^\s*data:/i.test(attr.value),
+        !DATA_URL_VALUE_PATTERN.test(attr.value.trim()),
         contextMessage(`Attribute (${attr.name}) value is no data URL`, errorContextStr)
     );
 }
@@ -233,11 +270,18 @@ function checkTextNode(text, errorContextStr) {
     return true;
 }
 
+function checkCommentNode(comment, errorContextStr) {
+    // Assert comment was not supposed to be filtered (all comments are, by default).
+    return assertTrue(
+        false,
+        contextMessage("Comment is removed", errorContextStr)
+    );
+}
+
 
 // RUNNER
 
 class StopSignalError extends Error {}
-class MaxSignalError extends Error {}
 
 await (async () => {
     const testDirents = await readdir(FILES_DIRECTORY_PATH, { withFileTypes: true });
@@ -276,7 +320,7 @@ await (async () => {
 
             await traverseDOM(
                 downsamplingResult.dom,
-                async (elementNode, attrNodes, textNodes) => {
+                async (elementNode, attrNodes, textNodes, commentNodes) => {
                     const htmlOutputHash = hashHTML(elementNode.outerHTML);
 
                     if(IGNORED_HASHES.includes(htmlOutputHash)) {
@@ -311,6 +355,9 @@ await (async () => {
                     for(const textNode of textNodes) {
                         record(checkTextNode(textNode, getErrorContextStr(true)), htmlOutputHash);
                     }
+                    for(const commentNode of commentNodes) {
+                        record(checkCommentNode(commentNode, getErrorContextStr(true)), htmlOutputHash);
+                    }
                 }
             );
 
@@ -324,12 +371,7 @@ await (async () => {
 
             return;
         }
-        if(err instanceof MaxSignalError) {
-            console.log(`\x1b[31mStopped on failure limit (${MAX_FAILURES}).\x1b[0m`);
 
-            return;
-        }
-        
         throw err;
     } finally {
         await writeFile(LATEST_ERROR_HASHES_PATH, [ ...errorHashes ].join("\n"));

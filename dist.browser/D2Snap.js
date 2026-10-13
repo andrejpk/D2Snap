@@ -12,6 +12,10 @@
     if (typeof require !== "undefined") return require.apply(this, arguments);
     throw Error('Dynamic require of "' + x + '" is not supported');
   });
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
       for (let key of __getOwnPropNames(from))
@@ -29,7 +33,16 @@
     mod
   ));
 
-  // src/var.SEMANTICS_TAGS.ts
+  // src/api.ts
+  var api_exports = {};
+  __export(api_exports, {
+    adaptiveD2Snap: () => adaptiveD2Snap2,
+    d2Snap: () => d2Snap2,
+    defaults: () => constants_defaults_exports,
+    normalizeDOM: () => normalizeDOM2
+  });
+
+  // src/constants.semantics.ts
   var VOID_TAG_NAMES = /* @__PURE__ */ new Set([
     "AREA",
     "BASE",
@@ -85,6 +98,9 @@
     "TEXTAREA",
     "TITLE"
   ]);
+  var PREFORMATTED_TAG_NAMES = /* @__PURE__ */ new Set([
+    "PRE"
+  ]);
   var NON_RENDERED_TAG_NAMES = /* @__PURE__ */ new Set([
     "SCRIPT",
     "STYLE",
@@ -94,6 +110,23 @@
   var SVG_LABEL_TAG_NAMES = [
     "title",
     "desc"
+  ];
+  var ACTIONABLE_ROLE_ATTRIBUTE_VALUES = [
+    "button",
+    "checkbox",
+    "link",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "option",
+    "radio",
+    "searchbox",
+    "slider",
+    "spinbutton",
+    "switch",
+    "textbox",
+    "combobox",
+    "listbox"
   ];
 
   // src/util.html.ts
@@ -106,7 +139,7 @@
         const start = i;
         while (i < n && html[i] !== "<") i++;
         const raw2 = html.slice(start, i);
-        if (raw2.trim()) tokens.push({
+        tokens.push({
           kind: "text",
           raw: raw2
         });
@@ -177,7 +210,7 @@
         });
         continue;
       }
-      if (isRawTextElement(tagName)) {
+      if (isWhitespacePreservingElement(tagName)) {
         const rest = html.slice(i);
         const m = rest.match(new RegExp(`</${tagName}\\s*>`, "i"));
         if (!m) {
@@ -210,6 +243,9 @@
   }
   function isRawTextElement(tagName) {
     return RAW_TEXT_TAG_NAMES.has(tagName.toUpperCase());
+  }
+  function isWhitespacePreservingElement(tagName) {
+    return isRawTextElement(tagName) || PREFORMATTED_TAG_NAMES.has(tagName.toUpperCase());
   }
   function formatHTML(html, indentSize = 2) {
     const indent = " ".repeat(indentSize);
@@ -327,29 +363,76 @@
   function resolveRoot(node) {
     return node?.body ?? node?.documentElement ?? node;
   }
+  function serializeSnapshotRoot(rootElement) {
+    switch (rootElement.localName.toLowerCase()) {
+      case "html":
+        return (rootElement.querySelector("body") ?? rootElement).innerHTML;
+      case "body":
+        return rootElement.innerHTML;
+      default:
+        return rootElement.outerHTML;
+    }
+  }
+  function resolveSlottedNodes(node) {
+    if (node.nodeName !== "SLOT" || !node.getRootNode().host) return [node];
+    const assignedNodes = node.assignedNodes({ flatten: true });
+    return assignedNodes.length ? assignedNodes : [...node.childNodes].flatMap((childNode) => resolveSlottedNodes(childNode));
+  }
+  function resolveComposedChildNodes(node) {
+    return [...(node.shadowRoot ?? node).childNodes].flatMap((childNode) => resolveSlottedNodes(childNode));
+  }
+  function resolveReplacingNodes(parentNode, previousSibling, nextSibling) {
+    if (!parentNode) return [];
+    if (previousSibling && previousSibling.parentNode !== parentNode) return [];
+    if (nextSibling && nextSibling.parentNode !== parentNode) return [];
+    const replacingNodes = [];
+    let currentNode = previousSibling ? previousSibling.nextSibling : parentNode.firstChild;
+    while (currentNode && currentNode !== nextSibling) {
+      replacingNodes.push(currentNode);
+      currentNode = currentNode.nextSibling;
+    }
+    return replacingNodes;
+  }
   function traverseDom(root2, filter = 4294967295 /* SHOW_ALL */, cb) {
     const showElement = (filter & 1 /* SHOW_ELEMENT */) !== 0;
     const showText = (filter & 4 /* SHOW_TEXT */) !== 0;
     const showComment = (filter & 128 /* SHOW_COMMENT */) !== 0;
+    const showAttribute = (filter & 2 /* SHOW_ATTRIBUTE */) !== 0;
+    const isRootConnected = root2.isConnected;
+    const isInRoot = (node) => {
+      return isRootConnected ? node.isConnected : root2.contains(node);
+    };
     const stack = [];
     for (let i = root2.childNodes.length - 1; i >= 0; i--) {
       stack.push(root2.childNodes[i]);
     }
     while (stack.length) {
       const node = stack.pop();
-      if (!root2.contains(node)) continue;
-      const children = [...node.childNodes];
-      const childIndex = stack.length;
-      const childCount = children.length;
-      for (let i = children.length - 1; i >= 0; i--) {
-        stack.push(children[i]);
-      }
+      if (!isInRoot(node)) continue;
+      const parentNode = node.parentNode;
+      const previousSibling = node.previousSibling;
+      const nextSibling = node.nextSibling;
       const passes = filter === 4294967295 /* SHOW_ALL */ || node.nodeType === 1 /* ELEMENT_NODE */ && showElement || node.nodeType === 3 /* TEXT_NODE */ && showText || node.nodeType === 8 /* COMMENT_NODE */ && showComment;
-      if (!passes) continue;
-      const replacingNodes = cb(node);
-      if (!replacingNodes?.length) continue;
-      stack.splice(childIndex, childCount, ...[...replacingNodes].reverse());
+      if (showAttribute && node.nodeType === 1 /* ELEMENT_NODE */) {
+        for (const attr of [...node.attributes]) {
+          if (!isInRoot(node)) break;
+          if (attr.ownerElement !== node) continue;
+          cb(attr);
+        }
+      }
+      const replacingNodes = passes && isInRoot(node) ? cb(node) : void 0;
+      const nextNodes = isInRoot(node) ? [...node.childNodes] : replacingNodes ?? resolveReplacingNodes(parentNode, previousSibling, nextSibling);
+      for (let i = nextNodes.length - 1; i >= 0; i--) {
+        stack.push(nextNodes[i]);
+      }
     }
+  }
+  function isWithinWhitespacePreservingElement(element, domRoot) {
+    for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+      if (isWhitespacePreservingElement(ancestor.tagName)) return true;
+      if (ancestor === domRoot) break;
+    }
+    return false;
   }
   function minifyDOM(domRoot) {
     traverseDom(
@@ -358,7 +441,7 @@
       (textNode) => {
         const parent = textNode.parentElement;
         if (!parent) return;
-        if (isRawTextElement(parent.tagName.toLowerCase())) return;
+        if (isWithinWhitespacePreservingElement(parent, domRoot)) return;
         const value = textNode.nodeValue ?? "";
         if (!value) return;
         textNode.nodeValue = value.replace(/\s+/g, " ");
@@ -370,7 +453,7 @@
       (textNode) => {
         const parent = textNode.parentElement;
         if (!parent) return;
-        if (isRawTextElement(parent.tagName.toLowerCase())) return;
+        if (isWithinWhitespacePreservingElement(parent, domRoot)) return;
         let value = textNode.nodeValue ?? "";
         if (!value) {
           textNode.parentNode?.removeChild(textNode);
@@ -434,169 +517,6 @@
         }
       }
     );
-  }
-
-  // src/util.obj.ts
-  function deepMerge(target, source) {
-    const result = { ...target };
-    for (const key of Object.keys(source)) {
-      const targetValue = result[key];
-      const sourceValue = source[key];
-      if (targetValue !== null && sourceValue !== null && typeof targetValue === "object" && typeof sourceValue === "object" && !Array.isArray(targetValue) && !Array.isArray(sourceValue)) {
-        result[key] = deepMerge(
-          targetValue,
-          sourceValue
-        );
-      } else {
-        result[key] = sourceValue;
-      }
-    }
-    return result;
-  }
-
-  // src/TextRank.ts
-  var SENTENCE_DELIMITER_REGEX = /(?<=\p{Sentence_Terminal})\s|\n|\r/gu;
-  var TOKEN_PATTERN_REGEX = /[\p{L}\p{N}]+/gu;
-  function initArray(n) {
-    return Array.from({ length: n }, () => null);
-  }
-  function tokenizeSentences(text) {
-    return text.split(SENTENCE_DELIMITER_REGEX).map((rawSentence) => rawSentence.trim()).filter((sentence) => !!sentence);
-  }
-  function textRank(sentences, options = {}) {
-    if (!sentences.length) return [];
-    const optionsWithDefaults = deepMerge({
-      damping: 0.75,
-      maxIterations: 20,
-      minSimilarity: 0.1,
-      tolerance: 1e-4
-    }, options);
-    const sentenceCount = sentences.length;
-    const termFrequencyPerSentence = initArray(sentenceCount);
-    const sentenceVectorNorms = new Float64Array(sentenceCount);
-    for (let i = 0; i < sentenceCount; i++) {
-      const termFrequencies = /* @__PURE__ */ new Map();
-      const lowercaseSentence = sentences[i].toLowerCase();
-      let tokenMatch;
-      while ((tokenMatch = TOKEN_PATTERN_REGEX.exec(lowercaseSentence)) !== null) {
-        const token = tokenMatch[0];
-        const previousCount = termFrequencies.get(token) ?? 0;
-        termFrequencies.set(token, previousCount + 1);
-      }
-      termFrequencyPerSentence[i] = termFrequencies;
-      let sumOfSquaredCounts = 0;
-      for (const count of termFrequencies.values()) {
-        sumOfSquaredCounts += count * count;
-      }
-      sentenceVectorNorms[i] = Math.sqrt(sumOfSquaredCounts);
-    }
-    const tokenPostings = /* @__PURE__ */ new Map();
-    for (let i = 0; i < sentenceCount; i++) {
-      for (const token of termFrequencyPerSentence[i].keys()) {
-        let postingList = tokenPostings.get(token);
-        if (!postingList) {
-          postingList = [];
-          tokenPostings.set(token, postingList);
-        }
-        postingList.push(i);
-      }
-    }
-    const neighborIndicesPerSentence = initArray(sentenceCount);
-    const neighborWeightsPerSentence = initArray(sentenceCount);
-    const weightedOutDegree = new Float64Array(sentenceCount);
-    const dotProductAccumulator = new Float64Array(sentenceCount);
-    const touchedNeighbors = [];
-    for (let i = 0; i < sentenceCount; i++) {
-      const sourceNorm = sentenceVectorNorms[i];
-      if (sourceNorm === 0) {
-        neighborIndicesPerSentence[i] = [];
-        neighborWeightsPerSentence[i] = new Float64Array(0);
-        continue;
-      }
-      const sourceTermFrequencies = termFrequencyPerSentence[i];
-      for (const [token, sourceCount] of sourceTermFrequencies) {
-        const postingList = tokenPostings.get(token);
-        for (let j = 0; j < postingList.length; j++) {
-          const targetIndex = postingList[j];
-          if (targetIndex === i) continue;
-          if (dotProductAccumulator[targetIndex] === 0) {
-            touchedNeighbors.push(targetIndex);
-          }
-          const targetCount = termFrequencyPerSentence[targetIndex].get(token);
-          dotProductAccumulator[targetIndex] += sourceCount * targetCount;
-        }
-      }
-      const neighborIndices = [];
-      const neighborWeights = [];
-      let outDegreeSum = 0;
-      for (let k = 0; k < touchedNeighbors.length; k++) {
-        const targetIndex = touchedNeighbors[k];
-        const dotProduct = dotProductAccumulator[targetIndex];
-        const targetNorm = sentenceVectorNorms[targetIndex];
-        if (dotProduct > 0 && targetNorm > 0) {
-          const cosineSimilarity = dotProduct / (sourceNorm * targetNorm);
-          if (cosineSimilarity > optionsWithDefaults.minSimilarity) {
-            neighborIndices.push(targetIndex);
-            neighborWeights.push(cosineSimilarity);
-            outDegreeSum += cosineSimilarity;
-          }
-        }
-        dotProductAccumulator[targetIndex] = 0;
-      }
-      touchedNeighbors.length = 0;
-      neighborIndicesPerSentence[i] = neighborIndices;
-      neighborWeightsPerSentence[i] = Float64Array.from(neighborWeights);
-      weightedOutDegree[i] = outDegreeSum;
-    }
-    let currentScores = new Float64Array(sentenceCount).fill(1);
-    let nextScores = new Float64Array(sentenceCount);
-    const damping = optionsWithDefaults.damping;
-    const teleportTerm = 1 - damping;
-    const tolerance = optionsWithDefaults.tolerance;
-    const maxIterations = optionsWithDefaults.maxIterations;
-    for (let i = 0; i < maxIterations; i++) {
-      let totalAbsoluteDelta = 0;
-      for (let j = 0; j < sentenceCount; j++) {
-        const neighborIndices = neighborIndicesPerSentence[j];
-        const neighborWeights = neighborWeightsPerSentence[j];
-        let weightedScoreSum = 0;
-        for (let k = 0; k < neighborIndices.length; k++) {
-          const neighborIndex = neighborIndices[k];
-          const neighborOutDegree = weightedOutDegree[neighborIndex];
-          if (neighborOutDegree > 0) {
-            weightedScoreSum += neighborWeights[k] / neighborOutDegree * currentScores[neighborIndex];
-          }
-        }
-        const updatedScore = teleportTerm + damping * weightedScoreSum;
-        const scoreDifference = updatedScore - currentScores[j];
-        nextScores[j] = updatedScore;
-        totalAbsoluteDelta += scoreDifference < 0 ? -scoreDifference : scoreDifference;
-      }
-      const swapBuffer = currentScores;
-      currentScores = nextScores;
-      nextScores = swapBuffer;
-      if (totalAbsoluteDelta < tolerance * sentenceCount) break;
-    }
-    return sentences.map((sentence, i) => ({
-      sentence,
-      index: i,
-      score: currentScores[i]
-    })).sort((a, b) => b.score - a.score);
-  }
-  function transformWithTextRank(text, ratio = 0.5, simple = false, noEmpty = false, textRankOptions = {}) {
-    const sentences = tokenizeSentences(text);
-    const k = Math.min(
-      Math.max(
-        Math.ceil(sentences.length * ratio),
-        +noEmpty
-      ),
-      sentences.length
-    );
-    if (sentences.length <= k) return sentences.join("\n");
-    if (simple) {
-      return sentences.slice(0, k).join("\n");
-    }
-    return textRank(sentences, textRankOptions).slice(0, k).sort((a, b) => a.index - b.index).map((obj) => obj.sentence).join("\n");
   }
 
   // node_modules/turndown/lib/turndown.browser.es.js
@@ -1580,15 +1500,896 @@
     }
   };
 
-  // src/var.CONFIG.ts
+  // src/config.ts
   var CONFIG = {
     uniqueAttributeName: "data-uid",
     attributeScoresDefaultFallbackValue: 0,
     attributeScoresFallbackKey: "*"
   };
 
-  // src/var.DEFAULTS_ATTRIBUTE_SCORES.ts
-  var DEFAULT_ATTRIBUTE_SCORES = {
+  // src/processing.ts
+  function hasSlotChildNode(virtualNode) {
+    return !!virtualNode.querySelector?.(":scope > slot");
+  }
+  function composeAndMapChildNodes(virtualNode, liveNode, liveByVirtual, document2, shadowDOM) {
+    if (shadowDOM && (liveNode.shadowRoot || hasSlotChildNode(virtualNode))) {
+      const liveChildNodes2 = resolveComposedChildNodes(liveNode);
+      const virtualChildNodes2 = liveChildNodes2.map((liveChildNode) => document2.importNode(liveChildNode, true));
+      virtualNode.replaceChildren(...virtualChildNodes2);
+      for (let i = 0; i < virtualChildNodes2.length; i++) {
+        liveByVirtual.set(virtualChildNodes2[i], liveChildNodes2[i]);
+      }
+      return;
+    }
+    const virtualChildNodes = virtualNode.childNodes;
+    const liveChildNodes = liveNode.childNodes;
+    for (let i = 0; i < Math.min(virtualChildNodes.length, liveChildNodes.length); i++) {
+      if (virtualChildNodes[i].nodeName !== liveChildNodes[i].nodeName) continue;
+      liveByVirtual.set(virtualChildNodes[i], liveChildNodes[i]);
+    }
+  }
+  function resolveLiveNode(virtualNode, liveByVirtual, inheritedLiveByVirtual) {
+    const resolve = (node) => {
+      return liveByVirtual.get(node) ?? inheritedLiveByVirtual.get(node);
+    };
+    if (virtualNode.nodeType !== 2 /* ATTRIBUTE_NODE */) return resolve(virtualNode) ?? virtualNode;
+    const virtualAttr = virtualNode;
+    const liveElement = virtualAttr.ownerElement ? resolve(virtualAttr.ownerElement) : void 0;
+    return liveElement?.getAttributeNodeNS(virtualAttr.namespaceURI, virtualAttr.localName) ?? virtualAttr;
+  }
+  function applyNormalizers(normalizers, virtualNode, liveNode, inheritedLiveByVirtual, context) {
+    for (const normalizer of normalizers) {
+      const parentNode = virtualNode.parentNode;
+      const previousSibling = virtualNode.previousSibling;
+      const nextSibling = virtualNode.nextSibling;
+      const ownerElement = virtualNode.ownerElement ?? null;
+      normalizer(virtualNode, liveNode, context);
+      const isAttached = virtualNode.nodeType === 2 /* ATTRIBUTE_NODE */ ? virtualNode.ownerElement === ownerElement : virtualNode.parentNode === parentNode;
+      if (isAttached) continue;
+      for (const replacingNode of resolveReplacingNodes(parentNode, previousSibling, nextSibling)) {
+        replacingNode.nodeType === liveNode.nodeType && inheritedLiveByVirtual.set(replacingNode, liveNode);
+      }
+      return;
+    }
+  }
+  function preProcessDOM(virtualDomRoot, liveDomRoot, document2, options) {
+    const normalizers = options.normalizers;
+    const context = {
+      classifiers: options.classifiers,
+      document: document2
+    };
+    const liveByVirtual = /* @__PURE__ */ new Map();
+    const inheritedLiveByVirtual = /* @__PURE__ */ new Map();
+    const virtualDomRootEquivalent = virtualDomRoot.tagName === liveDomRoot.tagName ? virtualDomRoot : virtualDomRoot.firstElementChild ?? virtualDomRoot;
+    liveByVirtual.set(virtualDomRootEquivalent, liveDomRoot);
+    virtualDomRootEquivalent === virtualDomRoot && composeAndMapChildNodes(virtualDomRoot, liveDomRoot, liveByVirtual, document2, options.shadowDOM);
+    traverseDom(
+      virtualDomRoot,
+      4294967295 /* SHOW_ALL */,
+      (node) => {
+        const pairedLiveNode = liveByVirtual.get(node);
+        pairedLiveNode && node.nodeType === 1 /* ELEMENT_NODE */ && composeAndMapChildNodes(node, pairedLiveNode, liveByVirtual, document2, options.shadowDOM);
+        applyNormalizers(
+          normalizers,
+          node,
+          resolveLiveNode(node, liveByVirtual, inheritedLiveByVirtual),
+          inheritedLiveByVirtual,
+          context
+        );
+      }
+    );
+  }
+  function postProcessDOM(domRoot, options, isActionableElement) {
+    if (options.filterEmptyElements) {
+      const elementNodes = [...domRoot.getElementsByTagName("*")];
+      for (let i = elementNodes.length - 1; i >= 0; i--) {
+        const elementNode = elementNodes[i];
+        if (isActionableElement(elementNode)) continue;
+        if (isVoidElement(elementNode.tagName)) continue;
+        if (elementNode.children.length || (elementNode.textContent ?? "").trim().length) continue;
+        elementNode.remove();
+      }
+    }
+    if (options.minify) {
+      minifyDOM(domRoot);
+    }
+  }
+  function postProcessHTML(html, options) {
+    const optionsWithDefaults = {
+      debug: false,
+      ...options
+    };
+    let processedHTML = html;
+    if (optionsWithDefaults.debug) {
+      processedHTML = formatHTML(processedHTML);
+    }
+    return processedHTML;
+  }
+
+  // src/util.obj.ts
+  function deepMerge(target, source) {
+    const result = { ...target };
+    for (const key of Object.keys(source)) {
+      const targetValue = result[key];
+      const sourceValue = source[key];
+      if (sourceValue === void 0) continue;
+      if (targetValue !== null && sourceValue !== null && typeof targetValue === "object" && typeof sourceValue === "object" && !Array.isArray(targetValue) && !Array.isArray(sourceValue)) {
+        result[key] = deepMerge(
+          targetValue,
+          sourceValue
+        );
+      } else {
+        result[key] = sourceValue;
+      }
+    }
+    return result;
+  }
+
+  // src/util.text.ts
+  var SENTENCE_DELIMITER_REGEX = /(?<=\p{Sentence_Terminal})\s|\n|\r/gu;
+  function tokenizeSentences(text) {
+    return text.split(SENTENCE_DELIMITER_REGEX).map((rawSentence) => rawSentence.trim()).filter((sentence) => !!sentence);
+  }
+  function transformWithRanking(text, ratio, rankSentencesFn, noEmpty = false) {
+    const sentences = tokenizeSentences(text);
+    const k = Math.min(
+      Math.max(
+        Math.ceil(sentences.length * ratio),
+        +noEmpty
+      ),
+      sentences.length
+    );
+    if (sentences.length <= k) return sentences.join("\n");
+    const keptSentenceCounts = /* @__PURE__ */ new Map();
+    for (const sentence of rankSentencesFn([...sentences]).slice(0, k)) {
+      keptSentenceCounts.set(sentence, (keptSentenceCounts.get(sentence) ?? 0) + 1);
+    }
+    return sentences.filter((sentence) => {
+      const keptSentenceCount = keptSentenceCounts.get(sentence) ?? 0;
+      if (!keptSentenceCount) return false;
+      keptSentenceCounts.set(sentence, keptSentenceCount - 1);
+      return true;
+    }).join("\n");
+  }
+  var TEXT_ENCODER = new TextEncoder();
+  function getByteLength(text) {
+    return TEXT_ENCODER.encode(text).length;
+  }
+
+  // src/constants.defaults.ts
+  var constants_defaults_exports = {};
+  __export(constants_defaults_exports, {
+    ATTRIBUTE_SCORES: () => ATTRIBUTE_SCORES,
+    CLASSIFIERS: () => CLASSIFIERS,
+    CLASSIFIER_SETTINGS: () => CLASSIFIER_SETTINGS,
+    NORMALIZERS: () => NORMALIZERS,
+    NORMALIZER_SETTINGS: () => NORMALIZER_SETTINGS,
+    SENTENCE_RANKER: () => SENTENCE_RANKER,
+    SENTENCE_RANKER_SETTINGS: () => SENTENCE_RANKER_SETTINGS,
+    classifiers: () => options_classifiers_exports,
+    normalizers: () => options_normalizers_exports,
+    sentenceRankers: () => options_sentenceRankers_exports
+  });
+
+  // src/options.classifiers/is-actionable-element.ts
+  var DEFAULT_SETTINGS = Object.freeze({
+    roleAttributeValues: Object.freeze([...ACTIONABLE_ROLE_ATTRIBUTE_VALUES]),
+    tagNames: Object.freeze([
+      "A",
+      "BUTTON",
+      "DETAILS",
+      "FORM",
+      "INPUT",
+      "LABEL",
+      "SELECT",
+      "OPTION",
+      "SUMMARY",
+      "TEXTAREA"
+    ])
+  });
+  var normalizeTagName = (name) => name.toUpperCase();
+  var normalizeRoleAttributeValue = (name) => name.toLowerCase();
+  var NAME_SETS_BY_NORMALIZER = /* @__PURE__ */ new WeakMap();
+  var NAME_SETS_BY_KEY = /* @__PURE__ */ new Map();
+  function resolveNameSet(names, normalize) {
+    let nameSetsByList = NAME_SETS_BY_NORMALIZER.get(normalize);
+    if (!nameSetsByList) {
+      nameSetsByList = /* @__PURE__ */ new WeakMap();
+      NAME_SETS_BY_NORMALIZER.set(normalize, nameSetsByList);
+    }
+    let nameSet = nameSetsByList.get(names);
+    if (nameSet) return nameSet;
+    const normalizedNames = names.map(normalize);
+    const key = normalizedNames.join("\n");
+    nameSet = NAME_SETS_BY_KEY.get(key) ?? new Set(normalizedNames);
+    NAME_SETS_BY_KEY.set(key, nameSet);
+    nameSetsByList.set(names, nameSet);
+    return nameSet;
+  }
+  function is_actionable_element_default(elementNode, settings = {}) {
+    const tagNames = resolveNameSet(settings.tagNames ?? DEFAULT_SETTINGS.tagNames, normalizeTagName);
+    const roleAttributeValues = resolveNameSet(settings.roleAttributeValues ?? DEFAULT_SETTINGS.roleAttributeValues, normalizeRoleAttributeValue);
+    return tagNames.has(elementNode.tagName.toUpperCase()) || roleAttributeValues.has(
+      elementNode.getAttribute("role")?.toLowerCase() ?? elementNode.role ?? ""
+    );
+  }
+
+  // src/options.classifiers/is-text-element.ts
+  var TAG_NAME_SETS_BY_LIST = /* @__PURE__ */ new WeakMap();
+  var TAG_NAME_SETS_BY_KEY = /* @__PURE__ */ new Map();
+  var DEFAULT_SETTINGS2 = Object.freeze({
+    tagNames: Object.freeze([
+      "ADDRESS",
+      "BLOCKQUOTE",
+      "B",
+      "CODE",
+      "EM",
+      "FIGURE",
+      "FIGCAPTION",
+      "H1",
+      "H2",
+      "H3",
+      "H4",
+      "H5",
+      "H6",
+      "HR",
+      "IMG",
+      "LI",
+      "OL",
+      "P",
+      "PRE",
+      "SMALL",
+      "SPAN",
+      "STRONG",
+      "SUB",
+      "SUP",
+      "TABLE",
+      "TBODY",
+      "TD",
+      "THEAD",
+      "TH",
+      "TR",
+      "UL"
+    ])
+  });
+  function resolveTagNameSet(tagNames) {
+    let tagNameSet = TAG_NAME_SETS_BY_LIST.get(tagNames);
+    if (tagNameSet) return tagNameSet;
+    const normalizedTagNames = tagNames.map((tagName) => tagName.toUpperCase());
+    const key = normalizedTagNames.join("\n");
+    tagNameSet = TAG_NAME_SETS_BY_KEY.get(key) ?? new Set(normalizedTagNames);
+    TAG_NAME_SETS_BY_KEY.set(key, tagNameSet);
+    TAG_NAME_SETS_BY_LIST.set(tagNames, tagNameSet);
+    return tagNameSet;
+  }
+  function is_text_element_default(elementNode, settings = {}) {
+    return resolveTagNameSet(settings.tagNames ?? DEFAULT_SETTINGS2.tagNames).has(elementNode.tagName.toUpperCase());
+  }
+
+  // src/options.normalizers.ts
+  var options_normalizers_exports = {};
+  __export(options_normalizers_exports, {
+    assignUniqueIds: () => assign_unique_ids_default,
+    filterAttributes: () => filter_attributes_default,
+    filterComments: () => filter_comments_default,
+    filterDataUrls: () => filter_data_urls_default,
+    filterEmptyImages: () => filter_empty_images_default,
+    filterNoiseElements: () => filter_noise_elements_default,
+    normalizeIconClassesToImgs: () => normalize_icon_classes_to_imgs_default,
+    normalizeSvgsToImgs: () => normalize_svgs_to_imgs_default,
+    normalizeTextLabelAttributesToContent: () => normalize_text_label_attributes_to_content_default
+  });
+
+  // src/options.normalizers/util.normalizers.ts
+  function forElements(normalizer) {
+    return (virtualNode, liveNode, context, settings) => {
+      if (virtualNode.nodeType !== 1 /* ELEMENT_NODE */) return;
+      normalizer(virtualNode, liveNode, context, settings);
+    };
+  }
+  function forAttributes(normalizer) {
+    return (virtualNode, liveNode, context, settings) => {
+      if (virtualNode.nodeType !== 2 /* ATTRIBUTE_NODE */) return;
+      normalizer(virtualNode, liveNode, context, settings);
+    };
+  }
+  function forComments(normalizer) {
+    return (virtualNode, liveNode, context, settings) => {
+      if (virtualNode.nodeType !== 8 /* COMMENT_NODE */) return;
+      normalizer(virtualNode, liveNode, context, settings);
+    };
+  }
+
+  // src/options.normalizers/filter-attributes.ts
+  var ATTRIBUTE_NAME_SETS_BY_LIST = /* @__PURE__ */ new WeakMap();
+  var ATTRIBUTE_NAME_SETS_BY_KEY = /* @__PURE__ */ new Map();
+  var DEFAULT_SETTINGS3 = Object.freeze({
+    attributeNames: Object.freeze([])
+  });
+  function normalizeCaseInsensitive(str) {
+    return str.toUpperCase();
+  }
+  function normalizeCaseInsensitiveArray(tagNames) {
+    return tagNames.map((tagName) => normalizeCaseInsensitive(tagName));
+  }
+  function resolveAttributeNameSet(attributeNames) {
+    let attributeNameSet = ATTRIBUTE_NAME_SETS_BY_LIST.get(attributeNames);
+    if (attributeNameSet) return attributeNameSet;
+    const normalizedAttributeNames = normalizeCaseInsensitiveArray(attributeNames);
+    const key = normalizedAttributeNames.join("\n");
+    attributeNameSet = ATTRIBUTE_NAME_SETS_BY_KEY.get(key) ?? new Set(normalizedAttributeNames);
+    ATTRIBUTE_NAME_SETS_BY_KEY.set(key, attributeNameSet);
+    ATTRIBUTE_NAME_SETS_BY_LIST.set(attributeNames, attributeNameSet);
+    return attributeNameSet;
+  }
+  var filter_attributes_default = forAttributes((virtualAttr, _liveAttr, _context, settings = {}) => {
+    const attributeNames = resolveAttributeNameSet(settings.attributeNames ?? DEFAULT_SETTINGS3.attributeNames);
+    if (attributeNames.has(normalizeCaseInsensitive(virtualAttr.name))) {
+      virtualAttr.ownerElement?.removeAttribute(virtualAttr.name);
+    }
+  });
+
+  // src/options.normalizers/filter-comments.ts
+  var DEFAULT_SETTINGS4 = Object.freeze({
+    keepPattern: null
+  });
+  var filter_comments_default = forComments((virtualComment, _liveComment, _context, settings = {}) => {
+    const keepPattern = settings.keepPattern ?? DEFAULT_SETTINGS4.keepPattern;
+    if (keepPattern) {
+      keepPattern.lastIndex = 0;
+      if (keepPattern.test(virtualComment.data)) return;
+    }
+    virtualComment.parentNode?.removeChild(virtualComment);
+  });
+
+  // src/options.normalizers/filter-data-urls.ts
+  var DEFAULT_SETTINGS5 = Object.freeze({
+    attributeNames: Object.freeze(["src"]),
+    valuePattern: /^data:/i
+  });
+  var filter_data_urls_default = forAttributes((virtualAttr, _liveAttr, _context, settings = {}) => {
+    const attributeNames = settings.attributeNames ?? DEFAULT_SETTINGS5.attributeNames;
+    const valuePattern = settings.valuePattern ?? DEFAULT_SETTINGS5.valuePattern;
+    if (!attributeNames.some((attributeName) => attributeName.toLowerCase() === virtualAttr.name.toLowerCase())) return;
+    valuePattern.lastIndex = 0;
+    if (!valuePattern.test(virtualAttr.value)) return;
+    virtualAttr.ownerElement?.removeAttribute(virtualAttr.name);
+  });
+
+  // src/options.normalizers/filter-noise-elements.ts
+  var DEFAULT_SETTINGS6 = Object.freeze({
+    tagNames: Object.freeze([
+      "CIRCLE",
+      "CLIPPATH",
+      "DEFS",
+      "ELLIPSE",
+      "FILTER",
+      "G",
+      "IMAGE",
+      "LINE",
+      "LINEARGRADIENT",
+      "LINK",
+      "MASK",
+      "META",
+      "NOSCRIPT",
+      "PATH",
+      "PATTERN",
+      "POLYGON",
+      "POLYLINE",
+      "RADIALGRADIENT",
+      "RECT",
+      "SCRIPT",
+      "STOP",
+      "STYLE",
+      "TEMPLATE",
+      "USE"
+    ])
+  });
+  var TAG_NAME_SETS_BY_LIST2 = /* @__PURE__ */ new WeakMap();
+  var TAG_NAME_SETS_BY_KEY2 = /* @__PURE__ */ new Map();
+  function normalizeCaseInsensitive2(str) {
+    return str.toUpperCase();
+  }
+  function normalizeCaseInsensitiveArray2(tagNames) {
+    return tagNames.map((tagName) => normalizeCaseInsensitive2(tagName));
+  }
+  function resolveTagNameSet2(tagNames) {
+    let tagNameSet = TAG_NAME_SETS_BY_LIST2.get(tagNames);
+    if (tagNameSet) return tagNameSet;
+    const normalizedTagNames = normalizeCaseInsensitiveArray2(tagNames);
+    const key = normalizedTagNames.join("\n");
+    tagNameSet = TAG_NAME_SETS_BY_KEY2.get(key) ?? new Set(normalizedTagNames);
+    TAG_NAME_SETS_BY_KEY2.set(key, tagNameSet);
+    TAG_NAME_SETS_BY_LIST2.set(tagNames, tagNameSet);
+    return tagNameSet;
+  }
+  var filter_noise_elements_default = forElements((virtualElement, _liveElement, _context, settings = {}) => {
+    const tagNames = resolveTagNameSet2(settings.tagNames ?? DEFAULT_SETTINGS6.tagNames);
+    if (tagNames.has(normalizeCaseInsensitive2(virtualElement.tagName))) {
+      virtualElement.remove();
+    }
+  });
+
+  // src/options.normalizers/filter-empty-images.ts
+  var DEFAULT_SETTINGS7 = Object.freeze({
+    labelAttributeNames: Object.freeze([
+      "aria-labelledby",
+      "aria-label",
+      "title"
+    ])
+  });
+  function normalizeCaseInsensitive3(str) {
+    return str.toUpperCase();
+  }
+  function elementHasTagName(elementNode, tagName) {
+    return normalizeCaseInsensitive3(elementNode.tagName) === normalizeCaseInsensitive3(tagName);
+  }
+  function resolveAttributeAsString(elementNode, attributeName) {
+    return (elementNode.getAttribute(attributeName) ?? "").trim();
+  }
+  function resolveIdReferenceText(elementNode, document2, id) {
+    const selector = `[id="${id.replace(/["\\]/g, "\\$&")}"]`;
+    const scopes = [elementNode.getRootNode(), document2];
+    for (const scope of scopes) {
+      for (const candidate of scope.querySelectorAll?.(selector) ?? []) {
+        const text = (candidate.textContent ?? "").trim();
+        if (text) return text;
+      }
+    }
+    return "";
+  }
+  function getElementLabelAttribute(elementNode, document2, labelAttributeNames) {
+    for (const labelAttributeName of labelAttributeNames) {
+      const labelAttributeValue = resolveAttributeAsString(elementNode, labelAttributeName.toLowerCase());
+      if (!labelAttributeValue) continue;
+      if (normalizeCaseInsensitive3(labelAttributeName) !== normalizeCaseInsensitive3("aria-labelledby")) {
+        return labelAttributeValue;
+      }
+      const referencedText = labelAttributeValue.split(/\s+/).map((id) => resolveIdReferenceText(elementNode, document2, id)).filter(Boolean).join(" ");
+      if (referencedText) return referencedText;
+    }
+    return null;
+  }
+  function resolveLabel(liveElement, document2, labelAttributeNames) {
+    return getElementLabelAttribute(liveElement, document2, labelAttributeNames);
+  }
+  var filter_empty_images_default = forElements((virtualElement, liveElement, context, settings = {}) => {
+    const document2 = context.document;
+    const labelAttributeNames = settings.labelAttributeNames ?? DEFAULT_SETTINGS7.labelAttributeNames;
+    if (elementHasTagName(virtualElement, "IMG") && !resolveLabel(liveElement, document2, labelAttributeNames)) {
+      if (!resolveAttributeAsString(virtualElement, "src") && !resolveAttributeAsString(virtualElement, "alt")) {
+        virtualElement.remove();
+      }
+    }
+  });
+
+  // src/options.normalizers/normalize-icon-classes-to-imgs.ts
+  var DEFAULT_SETTINGS8 = Object.freeze({
+    iconClassPrefixes: Object.freeze([]),
+    labelAttributeNames: Object.freeze([
+      "aria-labelledby",
+      "aria-label",
+      "title"
+    ])
+  });
+  var UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER = "-";
+  function normalizeCaseInsensitive4(str) {
+    return str.toUpperCase();
+  }
+  function elementHasTagName2(elementNode, tagName) {
+    return normalizeCaseInsensitive4(elementNode.tagName) === normalizeCaseInsensitive4(tagName);
+  }
+  function hasRenderedText(node) {
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3 /* TEXT_NODE */) {
+        if ((child.nodeValue ?? "").trim()) return true;
+        continue;
+      }
+      if (child.nodeType !== 1 /* ELEMENT_NODE */) continue;
+      if (NON_RENDERED_TAG_NAMES.has(normalizeCaseInsensitive4(child.tagName))) continue;
+      if (hasRenderedText(child)) return true;
+    }
+    return false;
+  }
+  function elementHasNoTextContent(elementNode) {
+    return !hasRenderedText(elementNode) && ![...elementNode.getElementsByTagName("img")].some((image) => !!resolveAttributeAsString2(image, "alt"));
+  }
+  function resolveAttributeAsString2(elementNode, attributeName) {
+    return (elementNode.getAttribute(attributeName) ?? "").trim();
+  }
+  function resolveIdReferenceText2(elementNode, document2, id) {
+    const selector = `[id="${id.replace(/["\\]/g, "\\$&")}"]`;
+    const scopes = [elementNode.getRootNode(), document2];
+    for (const scope of scopes) {
+      for (const candidate of scope.querySelectorAll?.(selector) ?? []) {
+        const text = (candidate.textContent ?? "").trim();
+        if (text) return text;
+      }
+    }
+    return "";
+  }
+  function getElementLabelAttribute2(elementNode, document2, labelAttributeNames) {
+    for (const labelAttributeName of labelAttributeNames) {
+      const labelAttributeValue = resolveAttributeAsString2(elementNode, labelAttributeName.toLowerCase());
+      if (!labelAttributeValue) continue;
+      if (normalizeCaseInsensitive4(labelAttributeName) !== normalizeCaseInsensitive4("aria-labelledby")) {
+        return labelAttributeValue;
+      }
+      const referencedText = labelAttributeValue.split(/\s+/).map((id) => resolveIdReferenceText2(elementNode, document2, id)).filter(Boolean).join(" ");
+      if (referencedText) return referencedText;
+    }
+    return null;
+  }
+  function resolveLabel2(liveElement, document2, labelAttributeNames) {
+    return getElementLabelAttribute2(liveElement, document2, labelAttributeNames);
+  }
+  function createImage(document2, alt = "") {
+    const imgSubstituteElementNode = document2.createElement("img");
+    alt && imgSubstituteElementNode.setAttribute("alt", alt);
+    return imgSubstituteElementNode;
+  }
+  function replaceElementByImage(elementNode, document2, alt = "") {
+    const imgSubstituteElementNode = createImage(document2, alt);
+    elementNode.replaceWith(imgSubstituteElementNode);
+    return imgSubstituteElementNode;
+  }
+  var normalize_icon_classes_to_imgs_default = forElements((virtualElement, liveElement, context, settings = {}) => {
+    const document2 = context.document;
+    const labelAttributeNames = settings.labelAttributeNames ?? DEFAULT_SETTINGS8.labelAttributeNames;
+    const iconClassPrefixes = settings.iconClassPrefixes ?? DEFAULT_SETTINGS8.iconClassPrefixes;
+    if (elementHasTagName2(virtualElement, "SVG")) return;
+    if (virtualElement.children.length === 0 && elementHasNoTextContent(virtualElement)) {
+      let iconfontsInClass = null;
+      for (const className of [...virtualElement.classList].reverse()) {
+        const iconfontName = iconClassPrefixes.find((name) => {
+          return className.startsWith(`${name}${UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER}`);
+        });
+        if (!iconfontName) continue;
+        iconfontsInClass = className.slice(iconfontName.length + UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER.length);
+        break;
+      }
+      if (iconfontsInClass) {
+        const alt = resolveLabel2(liveElement, document2, labelAttributeNames) ?? iconfontsInClass;
+        if (!context.classifiers.actionableElement(liveElement)) {
+          replaceElementByImage(virtualElement, document2, alt);
+        } else {
+          virtualElement.prepend(createImage(document2, alt));
+        }
+      }
+    }
+  });
+
+  // src/options.normalizers/normalize-text-label-attributes-to-content.ts
+  var DEFAULT_SETTINGS9 = Object.freeze({
+    labelAttributeNames: Object.freeze([
+      "aria-labelledby",
+      "aria-label",
+      "title"
+    ])
+  });
+  function normalizeCaseInsensitive5(str) {
+    return str.toUpperCase();
+  }
+  function elementHasTagName3(elementNode, tagName) {
+    return normalizeCaseInsensitive5(elementNode.tagName) === normalizeCaseInsensitive5(tagName);
+  }
+  function hasRenderedText2(node) {
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3 /* TEXT_NODE */) {
+        if ((child.nodeValue ?? "").trim()) return true;
+        continue;
+      }
+      if (child.nodeType !== 1 /* ELEMENT_NODE */) continue;
+      if (NON_RENDERED_TAG_NAMES.has(normalizeCaseInsensitive5(child.tagName))) continue;
+      if (hasRenderedText2(child)) return true;
+    }
+    return false;
+  }
+  function elementHasNoTextContent2(elementNode) {
+    return !hasRenderedText2(elementNode) && ![...elementNode.getElementsByTagName("img")].some((image) => !!resolveAttributeAsString3(image, "alt"));
+  }
+  function resolveAttributeAsString3(elementNode, attributeName) {
+    return (elementNode.getAttribute(attributeName) ?? "").trim();
+  }
+  function resolveIdReferenceText3(elementNode, document2, id) {
+    const selector = `[id="${id.replace(/["\\]/g, "\\$&")}"]`;
+    const scopes = [elementNode.getRootNode(), document2];
+    for (const scope of scopes) {
+      for (const candidate of scope.querySelectorAll?.(selector) ?? []) {
+        const text = (candidate.textContent ?? "").trim();
+        if (text) return text;
+      }
+    }
+    return "";
+  }
+  function getElementLabelAttribute3(elementNode, document2, labelAttributeNames) {
+    for (const labelAttributeName of labelAttributeNames) {
+      const labelAttributeValue = resolveAttributeAsString3(elementNode, labelAttributeName.toLowerCase());
+      if (!labelAttributeValue) continue;
+      if (normalizeCaseInsensitive5(labelAttributeName) !== normalizeCaseInsensitive5("aria-labelledby")) {
+        return labelAttributeValue;
+      }
+      const referencedText = labelAttributeValue.split(/\s+/).map((id) => resolveIdReferenceText3(elementNode, document2, id)).filter(Boolean).join(" ");
+      if (referencedText) return referencedText;
+    }
+    return null;
+  }
+  function resolveLabel3(liveElement, document2, labelAttributeNames) {
+    return getElementLabelAttribute3(liveElement, document2, labelAttributeNames);
+  }
+  var normalize_text_label_attributes_to_content_default = forElements((virtualElement, liveElement, context, settings = {}) => {
+    const document2 = context.document;
+    const labelAttributeNames = settings.labelAttributeNames ?? DEFAULT_SETTINGS9.labelAttributeNames;
+    if (!isRawTextElement(virtualElement.tagName)) {
+      const labelAttributeValue = resolveLabel3(liveElement, document2, labelAttributeNames);
+      if (labelAttributeValue) {
+        if (elementHasTagName3(virtualElement, "IMG")) {
+          const altAttributeValue = resolveAttributeAsString3(virtualElement, "alt");
+          !altAttributeValue && virtualElement.setAttribute("alt", labelAttributeValue);
+        } else if (!isVoidElement(virtualElement.tagName)) {
+          elementHasNoTextContent2(virtualElement) && virtualElement.prepend(labelAttributeValue);
+        }
+      }
+    }
+  });
+
+  // src/options.normalizers/normalize-svgs-to-imgs.ts
+  var DEFAULT_SETTINGS10 = Object.freeze({
+    labelAttributeNames: Object.freeze([
+      "aria-labelledby",
+      "aria-label",
+      "title"
+    ])
+  });
+  function normalizeCaseInsensitive6(str) {
+    return str.toUpperCase();
+  }
+  function elementHasTagName4(elementNode, tagName) {
+    return normalizeCaseInsensitive6(elementNode.tagName) === normalizeCaseInsensitive6(tagName);
+  }
+  function resolveAttributeAsString4(elementNode, attributeName) {
+    return (elementNode.getAttribute(attributeName) ?? "").trim();
+  }
+  function resolveIdReferenceText4(elementNode, document2, id) {
+    const selector = `[id="${id.replace(/["\\]/g, "\\$&")}"]`;
+    const scopes = [elementNode.getRootNode(), document2];
+    for (const scope of scopes) {
+      for (const candidate of scope.querySelectorAll?.(selector) ?? []) {
+        const text = (candidate.textContent ?? "").trim();
+        if (text) return text;
+      }
+    }
+    return "";
+  }
+  function getElementLabelAttribute4(elementNode, document2, labelAttributeNames) {
+    for (const labelAttributeName of labelAttributeNames) {
+      const labelAttributeValue = resolveAttributeAsString4(elementNode, labelAttributeName.toLowerCase());
+      if (!labelAttributeValue) continue;
+      if (normalizeCaseInsensitive6(labelAttributeName) !== normalizeCaseInsensitive6("aria-labelledby")) {
+        return labelAttributeValue;
+      }
+      const referencedText = labelAttributeValue.split(/\s+/).map((id) => resolveIdReferenceText4(elementNode, document2, id)).filter(Boolean).join(" ");
+      if (referencedText) return referencedText;
+    }
+    return null;
+  }
+  function resolveLabel4(liveElement, document2, labelAttributeNames) {
+    return getElementLabelAttribute4(liveElement, document2, labelAttributeNames);
+  }
+  function createImage2(document2, alt = "") {
+    const imgSubstituteElementNode = document2.createElement("img");
+    alt && imgSubstituteElementNode.setAttribute("alt", alt);
+    return imgSubstituteElementNode;
+  }
+  function replaceElementByImage2(elementNode, document2, alt = "") {
+    const imgSubstituteElementNode = createImage2(document2, alt);
+    elementNode.replaceWith(imgSubstituteElementNode);
+    return imgSubstituteElementNode;
+  }
+  var normalize_svgs_to_imgs_default = forElements((virtualElement, liveElement, context, settings = {}) => {
+    const document2 = context.document;
+    const labelAttributeNames = settings.labelAttributeNames ?? DEFAULT_SETTINGS10.labelAttributeNames;
+    if (!elementHasTagName4(virtualElement, "SVG")) return;
+    let labelValue = "";
+    for (const svgLabelTagName of SVG_LABEL_TAG_NAMES) {
+      labelValue = (virtualElement.querySelector(svgLabelTagName.toLowerCase())?.textContent ?? "").trim();
+      if (labelValue) break;
+    }
+    labelValue ||= resolveLabel4(liveElement, document2, labelAttributeNames) ?? "";
+    replaceElementByImage2(virtualElement, document2, labelValue);
+  });
+
+  // src/options.normalizers/assign-unique-ids.ts
+  var DEFAULT_SETTINGS11 = Object.freeze({
+    attributeName: CONFIG.uniqueAttributeName
+  });
+  var NEXT_UNIQUE_IDS = /* @__PURE__ */ new WeakMap();
+  var OCCUPIED_UNIQUE_IDS = /* @__PURE__ */ new WeakMap();
+  function resolveAttributeAsString5(elementNode, attributeName) {
+    return (elementNode.getAttribute(attributeName) ?? "").trim();
+  }
+  function resolveMap(map, key) {
+    !map.has(key) && map.set(key, /* @__PURE__ */ new Map());
+    return map.get(key);
+  }
+  function allocateUniqueID(liveDocument, virtualDocument, attributeName) {
+    const occupiedUniqueIDsByAttribute = resolveMap(OCCUPIED_UNIQUE_IDS, virtualDocument);
+    if (!occupiedUniqueIDsByAttribute.has(attributeName)) {
+      occupiedUniqueIDsByAttribute.set(attributeName, new Set(
+        [...liveDocument.querySelectorAll(`[${attributeName}]`)].map((elementNode) => resolveAttributeAsString5(elementNode, attributeName))
+      ));
+    }
+    const occupiedUniqueIDs = occupiedUniqueIDsByAttribute.get(attributeName);
+    const nextUniqueIDs = resolveMap(NEXT_UNIQUE_IDS, liveDocument);
+    let uniqueID = nextUniqueIDs.get(attributeName) ?? [...occupiedUniqueIDs].reduce((max, id) => Math.max(max, parseInt(id) || 0), -1) + 1;
+    while (occupiedUniqueIDs.has(uniqueID.toString())) uniqueID++;
+    occupiedUniqueIDs.add(uniqueID.toString());
+    nextUniqueIDs.set(attributeName, uniqueID + 1);
+    return uniqueID.toString();
+  }
+  var assign_unique_ids_default = forElements((virtualElement, liveElement, context, settings = {}) => {
+    const attributeName = settings.attributeName ?? DEFAULT_SETTINGS11.attributeName;
+    if (liveElement === virtualElement) return;
+    if (isInlineElement(liveElement.tagName) && isVoidElement(liveElement.tagName)) return;
+    let uniqueID = resolveAttributeAsString5(liveElement, attributeName);
+    if (!uniqueID) {
+      uniqueID = allocateUniqueID(liveElement.ownerDocument, context.document, attributeName);
+      liveElement.setAttribute(attributeName, uniqueID);
+    }
+    virtualElement.setAttribute(attributeName, uniqueID);
+  });
+
+  // src/TextRank.ts
+  var TOKEN_PATTERN_REGEX = /[\p{L}\p{N}]+/gu;
+  var DEFAULT_SETTINGS12 = Object.freeze({
+    damping: 0.75,
+    maxIterations: 20,
+    minSimilarity: 0.1,
+    tolerance: 1e-4
+  });
+  function initArray(n) {
+    return Array.from({ length: n }, () => null);
+  }
+  function textRank(sentences, options = {}) {
+    if (!sentences.length) return [];
+    const optionsWithDefaults = deepMerge({ ...DEFAULT_SETTINGS12 }, options);
+    const sentenceCount = sentences.length;
+    const termFrequencyPerSentence = initArray(sentenceCount);
+    const sentenceVectorNorms = new Float64Array(sentenceCount);
+    for (let i = 0; i < sentenceCount; i++) {
+      const termFrequencies = /* @__PURE__ */ new Map();
+      const lowercaseSentence = sentences[i].toLowerCase();
+      let tokenMatch;
+      while ((tokenMatch = TOKEN_PATTERN_REGEX.exec(lowercaseSentence)) !== null) {
+        const token = tokenMatch[0];
+        const previousCount = termFrequencies.get(token) ?? 0;
+        termFrequencies.set(token, previousCount + 1);
+      }
+      termFrequencyPerSentence[i] = termFrequencies;
+      let sumOfSquaredCounts = 0;
+      for (const count of termFrequencies.values()) {
+        sumOfSquaredCounts += count * count;
+      }
+      sentenceVectorNorms[i] = Math.sqrt(sumOfSquaredCounts);
+    }
+    const tokenPostings = /* @__PURE__ */ new Map();
+    for (let i = 0; i < sentenceCount; i++) {
+      for (const token of termFrequencyPerSentence[i].keys()) {
+        let postingList = tokenPostings.get(token);
+        if (!postingList) {
+          postingList = [];
+          tokenPostings.set(token, postingList);
+        }
+        postingList.push(i);
+      }
+    }
+    const neighborIndicesPerSentence = initArray(sentenceCount);
+    const neighborWeightsPerSentence = initArray(sentenceCount);
+    const weightedOutDegree = new Float64Array(sentenceCount);
+    const dotProductAccumulator = new Float64Array(sentenceCount);
+    const touchedNeighbors = [];
+    for (let i = 0; i < sentenceCount; i++) {
+      const sourceNorm = sentenceVectorNorms[i];
+      if (sourceNorm === 0) {
+        neighborIndicesPerSentence[i] = [];
+        neighborWeightsPerSentence[i] = new Float64Array(0);
+        continue;
+      }
+      const sourceTermFrequencies = termFrequencyPerSentence[i];
+      for (const [token, sourceCount] of sourceTermFrequencies) {
+        const postingList = tokenPostings.get(token);
+        for (let j = 0; j < postingList.length; j++) {
+          const targetIndex = postingList[j];
+          if (targetIndex === i) continue;
+          if (dotProductAccumulator[targetIndex] === 0) {
+            touchedNeighbors.push(targetIndex);
+          }
+          const targetCount = termFrequencyPerSentence[targetIndex].get(token);
+          dotProductAccumulator[targetIndex] += sourceCount * targetCount;
+        }
+      }
+      const neighborIndices = [];
+      const neighborWeights = [];
+      let outDegreeSum = 0;
+      for (let k = 0; k < touchedNeighbors.length; k++) {
+        const targetIndex = touchedNeighbors[k];
+        const dotProduct = dotProductAccumulator[targetIndex];
+        const targetNorm = sentenceVectorNorms[targetIndex];
+        if (dotProduct > 0 && targetNorm > 0) {
+          const cosineSimilarity = dotProduct / (sourceNorm * targetNorm);
+          if (cosineSimilarity > optionsWithDefaults.minSimilarity) {
+            neighborIndices.push(targetIndex);
+            neighborWeights.push(cosineSimilarity);
+            outDegreeSum += cosineSimilarity;
+          }
+        }
+        dotProductAccumulator[targetIndex] = 0;
+      }
+      touchedNeighbors.length = 0;
+      neighborIndicesPerSentence[i] = neighborIndices;
+      neighborWeightsPerSentence[i] = Float64Array.from(neighborWeights);
+      weightedOutDegree[i] = outDegreeSum;
+    }
+    let currentScores = new Float64Array(sentenceCount).fill(1);
+    let nextScores = new Float64Array(sentenceCount);
+    const damping = optionsWithDefaults.damping;
+    const teleportTerm = 1 - damping;
+    const tolerance = optionsWithDefaults.tolerance;
+    const maxIterations = optionsWithDefaults.maxIterations;
+    for (let i = 0; i < maxIterations; i++) {
+      let totalAbsoluteDelta = 0;
+      for (let j = 0; j < sentenceCount; j++) {
+        const neighborIndices = neighborIndicesPerSentence[j];
+        const neighborWeights = neighborWeightsPerSentence[j];
+        let weightedScoreSum = 0;
+        for (let k = 0; k < neighborIndices.length; k++) {
+          const neighborIndex = neighborIndices[k];
+          const neighborOutDegree = weightedOutDegree[neighborIndex];
+          if (neighborOutDegree > 0) {
+            weightedScoreSum += neighborWeights[k] / neighborOutDegree * currentScores[neighborIndex];
+          }
+        }
+        const updatedScore = teleportTerm + damping * weightedScoreSum;
+        const scoreDifference = updatedScore - currentScores[j];
+        nextScores[j] = updatedScore;
+        totalAbsoluteDelta += scoreDifference < 0 ? -scoreDifference : scoreDifference;
+      }
+      const swapBuffer = currentScores;
+      currentScores = nextScores;
+      nextScores = swapBuffer;
+      if (totalAbsoluteDelta < tolerance * sentenceCount) break;
+    }
+    return sentences.map((sentence, i) => ({
+      sentence,
+      index: i,
+      score: currentScores[i]
+    })).sort((a, b) => b.score - a.score);
+  }
+  function rankSentences(sentences, options = {}) {
+    return textRank(sentences, options).map((obj) => obj.sentence);
+  }
+
+  // src/options.sentenceRankers/text-rank.ts
+  var DEFAULT_SETTINGS13 = DEFAULT_SETTINGS12;
+  function textRank2(sentences, settings = {}) {
+    return rankSentences(sentences, settings);
+  }
+
+  // src/options.classifiers.ts
+  var options_classifiers_exports = {};
+  __export(options_classifiers_exports, {
+    isActionableElement: () => is_actionable_element_default,
+    isTextElement: () => is_text_element_default
+  });
+
+  // src/options.sentenceRankers.ts
+  var options_sentenceRankers_exports = {};
+  __export(options_sentenceRankers_exports, {
+    textRank: () => textRank2
+  });
+
+  // src/constants.defaults.ts
+  var ATTRIBUTE_SCORES = Object.freeze({
     // Maximum preservance:
     "data-uid": 1,
     "role": 1,
@@ -1663,310 +2464,69 @@
     "aria-*": 0.62,
     // Fallback:
     "*": 0
-  };
-
-  // src/var.DEFAULTS_ATTRIBUTES.ts
-  var DEFAULT_FILTER_ATTRIBUTE_NAMES = [];
-  var DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES = [
-    "aria-labelledby",
-    "aria-label",
-    "title"
-  ];
-  var DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES = [];
-
-  // src/var.DEFAULTS_TAGS.ts
-  var DEFAULT_CLASS_ACTIONABLE_TAG_NAMES = [
-    "A",
-    "BUTTON",
-    "DETAILS",
-    "FORM",
-    "INPUT",
-    "LABEL",
-    "SELECT",
-    "OPTION",
-    "SUMMARY",
-    "TEXTAREA"
-  ];
-  var DEFAULT_CLASS_TEXT_TAG_NAMES = [
-    "ADDRESS",
-    "BLOCKQUOTE",
-    "B",
-    "CODE",
-    "EM",
-    "FIGURE",
-    "FIGCAPTION",
-    "H1",
-    "H2",
-    "H3",
-    "H4",
-    "H5",
-    "H6",
-    "HR",
-    "IMG",
-    "LI",
-    "OL",
-    "P",
-    "PRE",
-    "SMALL",
-    "SPAN",
-    "STRONG",
-    "SUB",
-    "SUP",
-    "TABLE",
-    "TBODY",
-    "TD",
-    "THEAD",
-    "TH",
-    "TR",
-    "UL"
-  ];
-  var DEFAULT_FILTER_TAG_NAMES = [
-    "CIRCLE",
-    "CLIPPATH",
-    "DEFS",
-    "ELLIPSE",
-    "FILTER",
-    "G",
-    "IMAGE",
-    "LINE",
-    "LINEARGRADIENT",
-    "LINK",
-    "MASK",
-    "META",
-    "NOSCRIPT",
-    "PATH",
-    "PATTERN",
-    "POLYGON",
-    "POLYLINE",
-    "RADIALGRADIENT",
-    "RECT",
-    "SCRIPT",
-    "STOP",
-    "STYLE",
-    "TEMPLATE",
-    "USE"
-  ];
-
-  // src/var.SEMANTICS_ATTRIBUTES.ts
-  var ACTIONABLE_ROLE_ATTRIBUTE_VALUES = [
-    "button",
-    "checkbox",
-    "link",
-    "menuitem",
-    "menuitemcheckbox",
-    "menuitemradio",
-    "option",
-    "radio",
-    "searchbox",
-    "slider",
-    "spinbutton",
-    "switch",
-    "textbox",
-    "combobox",
-    "listbox"
-  ];
-
-  // src/D2Snap.processing.ts
-  var DATA_URL_ATTRIBUTE_NAME = "src";
-  var DATA_URL_ATTRIBUTE_VALUE_REGEX = /^data:/i;
-  var UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER = "-";
-  function normalizeCaseInsensitive(str) {
-    return str.toUpperCase();
-  }
-  function normalizeCaseInsensitiveArray(tagNames) {
-    return tagNames.map((tagName) => normalizeCaseInsensitive(tagName));
-  }
-  function elementHasTagName(elementNode, tagName) {
-    return normalizeCaseInsensitive(elementNode.tagName) === normalizeCaseInsensitive(tagName);
-  }
-  function hasRenderedText(node) {
-    for (const child of node.childNodes) {
-      if (child.nodeType === 3 /* TEXT_NODE */) {
-        if ((child.nodeValue ?? "").trim()) return true;
-        continue;
-      }
-      if (child.nodeType !== 1 /* ELEMENT_NODE */) continue;
-      if (NON_RENDERED_TAG_NAMES.has(normalizeCaseInsensitive(child.tagName))) continue;
-      if (hasRenderedText(child)) return true;
-    }
-    return false;
-  }
-  function elementHasNoTextContent(elementNode) {
-    return !hasRenderedText(elementNode) && ![...elementNode.querySelectorAll("img[alt]")].some((image) => !!resolveAttributeAsString(image, "alt"));
-  }
-  function resolveAttributeAsString(elementNode, attributeName) {
-    return (elementNode.getAttribute(attributeName) ?? "").trim();
-  }
-  function resolveIdReferenceText(elementNode, document2, id) {
-    const selector = `[id="${id.replace(/["\\]/g, "\\$&")}"]`;
-    const scopes = [elementNode.getRootNode(), document2];
-    for (const scope of scopes) {
-      for (const candidate of scope.querySelectorAll?.(selector) ?? []) {
-        const text = (candidate.textContent ?? "").trim();
-        if (text) return text;
-      }
-    }
-    return "";
-  }
-  function getElementLabelAttribute(elementNode, document2, labelAttributeNames) {
-    for (const labelAttributeName of labelAttributeNames) {
-      const labelAttributeValue = resolveAttributeAsString(elementNode, labelAttributeName);
-      if (!labelAttributeValue) continue;
-      if (normalizeCaseInsensitive(labelAttributeName) !== normalizeCaseInsensitive("aria-labelledby")) {
-        return labelAttributeValue;
-      }
-      const referencedText = labelAttributeValue.split(/\s+/).map((id) => resolveIdReferenceText(elementNode, document2, id)).filter(Boolean).join(" ");
-      if (referencedText) return referencedText;
-    }
-    return null;
-  }
-  function createImage(document2, alt = "") {
-    const imgSubstituteElementNode = document2.createElement("img");
-    alt && imgSubstituteElementNode.setAttribute("alt", alt);
-    return imgSubstituteElementNode;
-  }
-  function replaceElementByImage(elementNode, document2, alt = "") {
-    const imgSubstituteElementNode = createImage(document2, alt);
-    elementNode.replaceWith(imgSubstituteElementNode);
-    return imgSubstituteElementNode;
-  }
-  function preProcessDOM(domRoot, document2, options, isActionableElement2) {
-    const filterElementsTagNames = new Set(normalizeCaseInsensitiveArray(options.filter?.elements ?? []));
-    const filterAttributesNames = new Set(normalizeCaseInsensitiveArray(options.filter?.attributes ?? []));
-    const iconClasses = options.normalize?.iconClasses ?? [];
-    const labelAttributes = options.normalize?.labelAttributes ?? [];
-    const preResolvedLabels = /* @__PURE__ */ new WeakMap();
-    for (const referrer of document2.querySelectorAll("[aria-labelledby]")) {
-      const label = getElementLabelAttribute(referrer, document2, labelAttributes);
-      label && preResolvedLabels.set(referrer, label);
-    }
-    const resolveLabel = (element) => {
-      return preResolvedLabels.get(element) ?? getElementLabelAttribute(element, document2, labelAttributes);
-    };
-    traverseDom(
-      domRoot,
-      4294967295 /* SHOW_ALL */,
-      (node) => {
-        if (node.nodeType === 8 /* COMMENT_NODE */) {
-          node.parentNode?.removeChild(node);
-          return;
-        }
-        if (node.nodeType !== 1 /* ELEMENT_NODE */) return;
-        const elementNode = node;
-        if (filterElementsTagNames.has(normalizeCaseInsensitive(elementNode.tagName))) {
-          elementNode.remove();
-          return;
-        }
-        for (const attr of [...elementNode.attributes]) {
-          if (filterAttributesNames.has(normalizeCaseInsensitive(attr.name))) {
-            elementNode.removeAttribute(attr.name);
-          }
-        }
-        if (options.filter?.dataURLs) {
-          for (const attr of Array.from(elementNode.attributes)) {
-            if (attr.name.toLowerCase() !== DATA_URL_ATTRIBUTE_NAME || !DATA_URL_ATTRIBUTE_VALUE_REGEX.test(attr.value)) continue;
-            elementNode.removeAttribute(attr.name);
-          }
-        }
-        if (options.filter?.emptyElements) {
-          if (elementHasTagName(elementNode, "IMG") && !resolveLabel(elementNode)) {
-            if (!resolveAttributeAsString(elementNode, "src") && !resolveAttributeAsString(elementNode, "alt")) {
-              elementNode.remove();
-              return;
-            }
-          }
-        }
-        if (elementHasTagName(elementNode, "SVG")) {
-          if (options.normalize?.svgToImg) {
-            let labelValue = "";
-            for (const svgLabelTagName of SVG_LABEL_TAG_NAMES) {
-              labelValue = (elementNode.querySelector(svgLabelTagName.toLowerCase())?.textContent ?? "").trim();
-              if (labelValue) break;
-            }
-            labelValue ||= resolveLabel(elementNode) ?? "";
-            return [replaceElementByImage(elementNode, document2, labelValue)];
-          }
-        } else if (iconClasses.length) {
-          if (elementHasNoTextContent(elementNode) && elementNode.children.length === 0) {
-            let iconfontsInClass = null;
-            for (const className of [...elementNode.classList].reverse()) {
-              const iconfontName = iconClasses.find((name) => {
-                return className.startsWith(`${name}${UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER}`);
-              });
-              if (!iconfontName) continue;
-              iconfontsInClass = className.slice(iconfontName.length + UNIVERSAL_ICONFONT_PREFIX_SUFFIX_DELIMITER.length);
-              break;
-            }
-            if (iconfontsInClass) {
-              const alt = resolveLabel(elementNode) ?? iconfontsInClass;
-              if (!isActionableElement2(elementNode)) {
-                return [replaceElementByImage(elementNode, document2, alt)];
-              } else {
-                elementNode.prepend(createImage(document2, alt));
-              }
-            }
-          }
-        }
-        if (labelAttributes.length) {
-          if (!isRawTextElement(elementNode.tagName)) {
-            const labelAttributeValue = resolveLabel(elementNode);
-            if (labelAttributeValue) {
-              if (elementHasTagName(elementNode, "IMG")) {
-                const altAttributeValue = resolveAttributeAsString(elementNode, "alt");
-                !altAttributeValue && elementNode.setAttribute("alt", labelAttributeValue);
-              } else if (!isVoidElement(elementNode.tagName)) {
-                elementHasNoTextContent(elementNode) && elementNode.prepend(labelAttributeValue);
-              }
-            }
-          }
-        }
-      }
-    );
-  }
-  function postProcessDOM(domRoot, options, isActionableElement2) {
-    if (options.filter?.emptyElements) {
-      let hasRemovedElement;
-      do {
-        hasRemovedElement = false;
-        traverseDom(
-          domRoot,
-          1 /* SHOW_ELEMENT */,
-          (elementNode) => {
-            if (isActionableElement2(elementNode)) return;
-            if (isVoidElement(elementNode.tagName)) return;
-            if (elementNode.children.length || elementNode.textContent.trim().length) return;
-            elementNode.remove();
-            hasRemovedElement = true;
-          }
-        );
-      } while (hasRemovedElement);
-    }
-    if (options.minify) {
-      minifyDOM(domRoot);
-    }
-  }
-  function postProcessHTML(html, options) {
-    const optionsWithDefaults = {
-      debug: false,
-      ...options
-    };
-    let processedHTML = html;
-    if (optionsWithDefaults.debug) {
-      processedHTML = formatHTML(processedHTML);
-    }
-    return processedHTML;
-  }
+  });
+  var CLASSIFIERS = Object.freeze({
+    actionableElement: is_actionable_element_default,
+    textFormattingElement: is_text_element_default
+  });
+  var NORMALIZERS = Object.freeze([
+    filter_comments_default,
+    filter_noise_elements_default,
+    filter_empty_images_default,
+    normalize_svgs_to_imgs_default,
+    normalize_icon_classes_to_imgs_default,
+    normalize_text_label_attributes_to_content_default,
+    filter_attributes_default,
+    filter_data_urls_default
+  ]);
+  var SENTENCE_RANKER = textRank2;
+  var CLASSIFIER_SETTINGS = Object.freeze({
+    isActionableElement: DEFAULT_SETTINGS,
+    isTextElement: DEFAULT_SETTINGS2
+  });
+  var NORMALIZER_SETTINGS = Object.freeze({
+    filterAttributes: DEFAULT_SETTINGS3,
+    filterComments: DEFAULT_SETTINGS4,
+    filterDataUrls: DEFAULT_SETTINGS5,
+    filterNoiseElements: DEFAULT_SETTINGS6,
+    filterEmptyImages: DEFAULT_SETTINGS7,
+    normalizeIconClassesToImgs: DEFAULT_SETTINGS8,
+    normalizeTextLabelAttributesToContent: DEFAULT_SETTINGS9,
+    normalizeSvgsToImgs: DEFAULT_SETTINGS10,
+    assignUniqueIds: DEFAULT_SETTINGS11
+  });
+  var SENTENCE_RANKER_SETTINGS = Object.freeze({
+    textRank: DEFAULT_SETTINGS13
+  });
 
   // src/D2Snap.ts
   var WHITESPACE_REGEX = /^\s$/;
   var COLON_SCHEME_TAG_REGEX = /^[a-z][a-z0-9+.-]*:(?![a-z_][a-z0-9_.-]*$)/i;
-  var ACTIONABLE_ROLE_ATTRIBUTE_VALUES2 = new Set(
-    ACTIONABLE_ROLE_ATTRIBUTE_VALUES.map((t) => t.toLowerCase())
-  );
   function validateUnitParameter(name, value) {
     if (!Number.isFinite(value) || value < 0 || value > 1) {
       throw new RangeError(`Parameter ${name} expects value in [0, 1], got ${value}`);
     }
+  }
+  function resolveD2SnapArgs(args) {
+    const [ratiosOrRE, optionsOrRA] = args;
+    if (typeof ratiosOrRE === "object" && ratiosOrRE !== null) {
+      const ratios = ratiosOrRE;
+      ratios.r !== void 0 && validateUnitParameter("r", ratios.r);
+      const r = ratios.r ?? 0;
+      return {
+        rE: ratios.rE ?? r,
+        rA: ratios.rA ?? r,
+        rT: ratios.rT ?? r,
+        options: optionsOrRA ?? {}
+      };
+    }
+    const [rE, rA, rT, options] = args;
+    return {
+      rE,
+      rA,
+      rT,
+      options: options ?? {}
+    };
   }
   function defineNonEnumerableProperty(obj, prop, value) {
     Object.defineProperty(obj, prop, {
@@ -1977,7 +2537,7 @@
     });
   }
   function getAttributeScore(attrName, attributeScores = new Map(
-    Object.entries(DEFAULT_ATTRIBUTE_SCORES).map((entry) => [entry[0].toLowerCase(), entry[1]])
+    Object.entries(ATTRIBUTE_SCORES).map((entry) => [entry[0].toLowerCase(), entry[1]])
   )) {
     let normalizedName = attrName.toLowerCase();
     if (!attributeScores.has(normalizedName)) {
@@ -1993,61 +2553,87 @@
     const attributeScore = attributeScores.get(normalizedName) ?? attributeScores.get(CONFIG.attributeScoresFallbackKey) ?? CONFIG.attributeScoresDefaultFallbackValue;
     return attributeScore;
   }
-  function isActionableElement(elementNode, actionableElementTagNames = new Set(DEFAULT_CLASS_ACTIONABLE_TAG_NAMES), actionableRoleAttributeValues = ACTIONABLE_ROLE_ATTRIBUTE_VALUES2) {
-    return actionableElementTagNames.has(elementNode.tagName.toUpperCase()) || actionableRoleAttributeValues.has(
-      elementNode.getAttribute("role")?.toLowerCase() ?? elementNode.role ?? ""
-    );
+  function createVirtualDOM(document2, rootElement) {
+    const inertDoc = document2.implementation.createHTMLDocument("");
+    const rootElementClone = inertDoc.importNode(rootElement, true);
+    switch (rootElement.localName.toLowerCase()) {
+      case "html":
+        inertDoc.replaceChild(rootElementClone, inertDoc.documentElement);
+        break;
+      case "body":
+        inertDoc.documentElement.replaceChild(rootElementClone, inertDoc.body);
+        break;
+      default:
+        inertDoc.body.appendChild(rootElementClone);
+    }
+    const virtualDOM = rootElement.nodeType === 9 /* DOCUMENT_NODE */ ? inertDoc.documentElement : inertDoc.body;
+    const liveDOM = rootElement.localName.toLowerCase() === "html" ? rootElement.querySelector("body") ?? rootElement : rootElement;
+    return { inertDoc, virtualDOM, liveDOM };
   }
-  function d2Snap(dom, rE, rA, rT, options = {}) {
+  function resolveNormalizers(options) {
+    const normalizers = [...options.normalizers];
+    options.uniqueIDs && !normalizers.includes(assign_unique_ids_default) && normalizers.push(assign_unique_ids_default);
+    return normalizers;
+  }
+  function normalizeDOM(dom, options = {}) {
+    const document2 = resolveDocument(dom);
+    if (!document2) throw new ReferenceError("Could not resolve a valid document object from DOM");
+    const rootElement = resolveRoot(dom);
+    const optionsWithDefaults = deepMerge({
+      classifiers: CLASSIFIERS,
+      normalizers: NORMALIZERS,
+      shadowDOM: false,
+      uniqueIDs: false
+    }, options);
+    const { inertDoc, virtualDOM, liveDOM } = createVirtualDOM(document2, rootElement);
+    preProcessDOM(virtualDOM, liveDOM, inertDoc, {
+      classifiers: optionsWithDefaults.classifiers,
+      normalizers: resolveNormalizers(optionsWithDefaults),
+      shadowDOM: optionsWithDefaults.shadowDOM
+    });
+    return {
+      dom: virtualDOM,
+      get html() {
+        return virtualDOM.innerHTML;
+      },
+      get innerHTML() {
+        return virtualDOM.innerHTML;
+      },
+      get outerHTML() {
+        return virtualDOM.outerHTML;
+      }
+    };
+  }
+  function d2Snap(dom, ...args) {
+    const { rE, rA, rT, options } = resolveD2SnapArgs(args);
     validateUnitParameter("rE", rE);
     validateUnitParameter("rA", rA);
     validateUnitParameter("rT", rT);
     const document2 = resolveDocument(dom);
     if (!document2) throw new ReferenceError("Could not resolve a valid document object from DOM");
     const rootElement = resolveRoot(dom);
-    const originalSize = rootElement.innerHTML.length;
+    const originalSize = getByteLength(serializeSnapshotRoot(rootElement));
     const optionsWithDefaults = deepMerge({
-      attributeScores: DEFAULT_ATTRIBUTE_SCORES,
-      classification: {
-        actionableElements: DEFAULT_CLASS_ACTIONABLE_TAG_NAMES,
-        textElements: DEFAULT_CLASS_TEXT_TAG_NAMES
-      },
+      attributeScores: ATTRIBUTE_SCORES,
+      classifiers: CLASSIFIERS,
       debug: false,
-      filter: {
-        attributes: DEFAULT_FILTER_ATTRIBUTE_NAMES,
-        dataURLs: true,
-        elements: DEFAULT_FILTER_TAG_NAMES,
-        emptyElements: true
-      },
+      filterEmptyElements: true,
       minify: true,
-      normalize: {
-        iconClasses: DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES,
-        labelAttributes: DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES,
-        svgToImg: true
-      },
+      normalizers: NORMALIZERS,
+      shadowDOM: false,
+      sentenceRanker: SENTENCE_RANKER,
       skip: {
         markdown: false,
         textRank: false
       },
       uniqueIDs: false
     }, options);
-    optionsWithDefaults.attributeScores = {
-      ...DEFAULT_ATTRIBUTE_SCORES,
-      ...options.attributeScoring ?? {},
-      ...options.attributeScores ?? {}
-    };
     const attributeScores = new Map(
       Object.entries(optionsWithDefaults.attributeScores).map((entry) => [entry[0].toLowerCase(), entry[1]])
     );
-    const actionableElementTagNames = new Set(
-      (optionsWithDefaults.classification?.actionableElements ?? []).map((tagName) => tagName.toUpperCase())
-    );
-    const textElementTagNames = new Set(
-      (optionsWithDefaults.classification?.textElements ?? []).map((tagName) => tagName.toUpperCase())
-    );
-    const _isActionableElement = (elementNode) => {
-      return isActionableElement(elementNode, actionableElementTagNames);
-    };
+    const _isActionableElement = optionsWithDefaults.classifiers.actionableElement;
+    const _isTextElement = optionsWithDefaults.classifiers.textFormattingElement;
+    const _sentenceRanker = optionsWithDefaults.sentenceRanker === null || optionsWithDefaults.skip?.textRank && !options.sentenceRanker ? (sentences) => sentences : optionsWithDefaults.sentenceRanker;
     const turndown = new Turndown([_isActionableElement]);
     function snapElementContainerNode(elementNode, rE2) {
       const considerContainerElement = (elementNode2) => {
@@ -2068,13 +2654,22 @@
       }
       sourceElement.parentNode?.removeChild(sourceElement);
     }
+    let contextualFragmentRange = null;
+    let createTextNode = null;
     function snapElementTextFormattingNode(document3, elementNode) {
       if (optionsWithDefaults.skip?.markdown) return;
       if (elementNode.nodeType !== 1 /* ELEMENT_NODE */) return;
       if (_isActionableElement(elementNode)) return;
-      if (!textElementTagNames.has(elementNode.tagName.toUpperCase())) return;
+      if (!_isTextElement(elementNode)) return;
+      contextualFragmentRange ??= document3.createRange();
+      createTextNode ??= document3.createTextNode.bind(document3);
       const markdown = turndown.translate(elementNode.outerHTML);
-      const markdownNodesFragment = document3.createRange().createContextualFragment(markdown);
+      if (!/[<&\r\0]/.test(markdown)) {
+        const replacingNodes2 = markdown ? [createTextNode(markdown)] : [];
+        elementNode.replaceWith(...[createTextNode(" "), ...replacingNodes2, createTextNode(" ")]);
+        return replacingNodes2;
+      }
+      const markdownNodesFragment = contextualFragmentRange.createContextualFragment(markdown);
       const unwrapColonTaggedElements = (parent) => {
         for (const child of [...parent.childNodes]) {
           if (child.nodeType !== 1 /* ELEMENT_NODE */) continue;
@@ -2088,7 +2683,7 @@
       };
       unwrapColonTaggedElements(markdownNodesFragment);
       const replacingNodes = [...markdownNodesFragment.childNodes];
-      elementNode.replaceWith(...[document3.createTextNode(" "), ...replacingNodes, document3.createTextNode(" ")]);
+      elementNode.replaceWith(...[createTextNode(" "), ...replacingNodes, createTextNode(" ")]);
       const sourceTagName = elementNode.tagName.toLowerCase();
       return replacingNodes.filter((n) => n.nodeType !== 1 /* ELEMENT_NODE */ || n.tagName.toLowerCase() !== sourceTagName);
     }
@@ -2100,7 +2695,7 @@
       const trailingSpace = WHITESPACE_REGEX.test(text.charAt(text.length - 1)) ? " " : "";
       textNode.textContent = [
         leadingSpace,
-        transformWithTextRank(text, 1 - rT2, !!optionsWithDefaults.skip?.textRank, true, optionsWithDefaults.textRankOptions),
+        transformWithRanking(text, 1 - rT2, _sentenceRanker, true),
         trailingSpace
       ].join("");
     }
@@ -2114,39 +2709,15 @@
     const t = optionsWithDefaults.debug ? performance.now.bind(performance) : () => 0;
     let t0;
     const timings = {};
-    if (optionsWithDefaults.uniqueIDs) {
-      let i = 0;
-      traverseDom(
-        rootElement,
-        1 /* SHOW_ELEMENT */,
-        (node) => {
-          const elementNode = node;
-          if (isInlineElement(elementNode.tagName) && isVoidElement(elementNode.tagName)) return;
-          elementNode.setAttribute(CONFIG.uniqueAttributeName, i.toString());
-          i++;
-        }
-      );
-    }
     t0 = t();
-    const inertDoc = document2.implementation.createHTMLDocument("");
-    const rootElementClone = inertDoc.importNode(rootElement, true);
-    switch (rootElement.localName.toLowerCase()) {
-      case "html":
-        inertDoc.replaceChild(rootElementClone, inertDoc.documentElement);
-        break;
-      case "body":
-        inertDoc.documentElement.replaceChild(rootElementClone, inertDoc.body);
-        break;
-      default:
-        inertDoc.body.appendChild(rootElementClone);
-    }
-    const virtualDOM = rootElement.nodeType === 9 /* DOCUMENT_NODE */ ? inertDoc.documentElement : inertDoc.body;
+    const { inertDoc, virtualDOM, liveDOM } = createVirtualDOM(document2, rootElement);
     timings.clone = t() - t0;
     t0 = t();
-    preProcessDOM(virtualDOM, inertDoc, {
-      filter: optionsWithDefaults.filter,
-      normalize: optionsWithDefaults.normalize
-    }, _isActionableElement);
+    preProcessDOM(virtualDOM, liveDOM, inertDoc, {
+      classifiers: optionsWithDefaults.classifiers,
+      normalizers: resolveNormalizers(optionsWithDefaults),
+      shadowDOM: optionsWithDefaults.shadowDOM
+    });
     timings.preProcessing = t() - t0;
     t0 = t();
     traverseDom(
@@ -2195,7 +2766,7 @@
     }
     t0 = t();
     postProcessDOM(virtualDOM, {
-      filter: optionsWithDefaults.filter,
+      filterEmptyElements: optionsWithDefaults.filterEmptyElements,
       minify: optionsWithDefaults.minify
     }, _isActionableElement);
     timings.domPostProcessing = t() - t0;
@@ -2229,10 +2800,14 @@
       meta: {
         originalSize,
         get snapshotSize() {
-          return getHTML("innerHTML").length;
+          return getByteLength(getHTML("innerHTML"));
         },
         get sizeRatio() {
-          return getHTML("innerHTML").length / originalSize;
+          const snapshotSize = getByteLength(getHTML("innerHTML"));
+          if (originalSize === 0) {
+            return snapshotSize === 0 ? 1 : Infinity;
+          }
+          return snapshotSize / originalSize;
         },
         get tokenEstimate() {
           return Math.round(getHTML("innerHTML").length / 4);
@@ -2310,10 +2885,12 @@
   async function adaptiveD2Snap2(domOrString, ...args) {
     return adaptiveD2Snap(d2Snap, await ensureDOM(domOrString), ...args);
   }
+  async function normalizeDOM2(domOrString, ...args) {
+    return normalizeDOM(await ensureDOM(domOrString), ...args);
+  }
 
   // src/api.browser.ts
   window.D2Snap = {
-    d2Snap: d2Snap2,
-    adaptiveD2Snap: adaptiveD2Snap2
+    ...api_exports
   };
 })();

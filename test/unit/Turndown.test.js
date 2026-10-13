@@ -118,3 +118,19 @@ await test("Translate markup to markdown via Turndown (edge cases)", async () =>
         "Turndown returns invalid results"
     );
 });
+
+await test("Translate markup to markdown via Turndown (images without source)", async () => {
+    const markdown = turndown.translate(`
+        <p><img alt="Burger [cheese]"> <img> <img src="fries.png" alt="Fries"></p>
+    `)
+        .trim();
+
+    assertEqual(
+        flattenCode(markdown),
+        flattenCode(`
+            ![Burger \\[cheese\\]]()  ![Fries](fries.png)
+        `),
+        "Turndown returns invalid results"
+    );
+});
+

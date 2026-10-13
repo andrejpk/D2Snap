@@ -1,33 +1,28 @@
-import { transformWithTextRank } from "./TextRank.js";
 import { Turndown } from "./Turndown.js";
 import {
 	type DeepPartial,
 	type D2SnapOptions,
 	type D2SnapResult,
 	type DOM,
+	type ElementClassifierFn,
+	type NodeNormalizerFn,
 	type ElementWithDepth,
-	type TextNode
+	type NormalizeDOMOptions,
+	type NormalizeDOMResult,
+	type SentenceRankerFn,
+	type TextNode,
+	type D2SnapArgs,
+	type D2SnapRatios
 } from "./types.js";
 import { NodeType, NodeFilter } from "./enums.js";
-import { CONFIG } from "./var.CONFIG.js";
-import {
-	DEFAULT_ATTRIBUTE_SCORES
-} from "./var.DEFAULTS_ATTRIBUTE_SCORES.js";
-import {
-	DEFAULT_FILTER_ATTRIBUTE_NAMES,
-	DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES,
-	DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES
-} from "./var.DEFAULTS_ATTRIBUTES.js";
-import {
-	DEFAULT_CLASS_ACTIONABLE_TAG_NAMES,
-	DEFAULT_CLASS_TEXT_TAG_NAMES,
-	DEFAULT_FILTER_TAG_NAMES
-} from "./var.DEFAULTS_TAGS.js";
-import { ACTIONABLE_ROLE_ATTRIBUTE_VALUES as ACTIONABLE_ROLE_ATTRIBUTE_VALUES_ARRAY } from "./var.SEMANTICS_ATTRIBUTES.js";
-import { resolveDocument, resolveRoot, traverseDom } from "./util.dom.js";
-import { isInlineElement, isVoidElement } from "./util.html.js";
-import { postProcessDOM, postProcessHTML, preProcessDOM } from "./D2Snap.processing.js";
+import { CONFIG } from "./config.js";
+import { resolveDocument, resolveRoot, serializeSnapshotRoot, traverseDom } from "./util.dom.js";
+import { isVoidElement } from "./util.html.js";
+import { postProcessDOM, postProcessHTML, preProcessDOM } from "./processing.js";
 import { deepMerge } from "./util.obj.js";
+import { getByteLength, transformWithRanking } from "./util.text.js";
+import * as defaults from "./constants.defaults.js";
+import { assignUniqueIds } from "./options.normalizers.js";
 
 
 const WHITESPACE_REGEX: RegExp = /^\s$/;
@@ -38,14 +33,45 @@ const WHITESPACE_REGEX: RegExp = /^\s$/;
 // negative lookahead spares real namespaced custom elements (`FB:LIKE`), whose
 // tail after `:` is a valid NCName.
 const COLON_SCHEME_TAG_REGEX: RegExp = /^[a-z][a-z0-9+.-]*:(?![a-z_][a-z0-9_.-]*$)/i;
-const ACTIONABLE_ROLE_ATTRIBUTE_VALUES: Set<string> = new Set(
-	ACTIONABLE_ROLE_ATTRIBUTE_VALUES_ARRAY.map(t => t.toLowerCase())
-);
 
 function validateUnitParameter(name: string, value: number) {
 	if(!Number.isFinite(value) || value < 0 || value > 1) {
 		throw new RangeError(`Parameter ${name} expects value in [0, 1], got ${value}`);
 	}
+}
+
+// Resolves the d2Snap() argument forms (rE, rA, rT | ratios object) to specific ratios.
+// Validates r; specific ratios are validated by d2Snap().
+export function resolveD2SnapArgs(args: D2SnapArgs): {
+	rE: number; rA: number; rT: number;
+	options: DeepPartial<D2SnapOptions>;
+} {
+	const [ ratiosOrRE, optionsOrRA ] = args;
+
+	// Ratios object: specific ratios fall back to r, else to 0 (no reduction)
+	if((typeof(ratiosOrRE) === "object") && (ratiosOrRE !== null)) {
+		const ratios: D2SnapRatios = ratiosOrRE;
+
+		(ratios.r !== undefined)
+			&& validateUnitParameter("r", ratios.r);
+
+		const r: number = ratios.r ?? 0;
+
+		return {
+			rE: ratios.rE ?? r,
+			rA: ratios.rA ?? r,
+			rT: ratios.rT ?? r,
+			options: (optionsOrRA as DeepPartial<D2SnapOptions>) ?? {}
+		};
+	}
+
+	// Specific ratios
+	const [ rE, rA, rT, options ] = args as [ number, number, number, DeepPartial<D2SnapOptions>? ];
+
+	return {
+		rE, rA, rT,
+		options: options ?? {}
+	};
 }
 
 function defineNonEnumerableProperty(obj: object, prop: string, value: unknown) {
@@ -59,7 +85,7 @@ function defineNonEnumerableProperty(obj: object, prop: string, value: unknown) 
 
 
 export function getAttributeScore(attrName: string, attributeScores: Map<string, number> = new Map(
-	Object.entries(DEFAULT_ATTRIBUTE_SCORES)
+	Object.entries(defaults.ATTRIBUTE_SCORES)
 		.map((entry: [ string, number ]) => [ entry[0].toLowerCase(), entry[1] ])
 )) {
 	let normalizedName: string = attrName.toLowerCase();
@@ -85,26 +111,94 @@ export function getAttributeScore(attrName: string, attributeScores: Map<string,
 	return attributeScore;
 }
 
-export function isActionableElement(
-	elementNode: Element,
-	actionableElementTagNames: Set<string> = new Set(DEFAULT_CLASS_ACTIONABLE_TAG_NAMES),
-	actionableRoleAttributeValues: Set<string> = ACTIONABLE_ROLE_ATTRIBUTE_VALUES
-): boolean {
-	return (
-		actionableElementTagNames.has(elementNode.tagName.toUpperCase())
-		|| actionableRoleAttributeValues.has(
-			elementNode.getAttribute("role")?.toLowerCase()
-			?? elementNode.role
-			?? ""
-		)
-	);
+// Clones the DOM into an inert document (virtual DOM), paired with its live equivalent.
+function createVirtualDOM(document: Document, rootElement: Element): {
+	inertDoc: Document;
+	virtualDOM: Element;
+	liveDOM: Element;
+} {
+	const inertDoc: Document = document.implementation.createHTMLDocument("");
+	// Shadow DOM content is composed into the clone during pre-processing (if enabled).
+	const rootElementClone: DOM = inertDoc.importNode(rootElement, true);
+	switch(rootElement.localName.toLowerCase()) {
+		case "html":
+			inertDoc.replaceChild(rootElementClone, inertDoc.documentElement);
+			break;
+		case "body":
+			inertDoc.documentElement.replaceChild(rootElementClone, inertDoc.body);
+			break;
+		default:
+			inertDoc.body.appendChild(rootElementClone);
+	}
+	// Wrap local DOM input (e.g., SECTIOn snippet) in BODY to allow destructive mutation
+	// of input DOM root.
+	const virtualDOM: Element = (rootElement.nodeType === NodeType.DOCUMENT_NODE)
+		? inertDoc.documentElement
+		: inertDoc.body;
+	// Live equivalent of the virtual DOM root (or of its BODY-wrapped child).
+	const liveDOM: Element = (rootElement.localName.toLowerCase() === "html")
+		? (rootElement.querySelector("body") ?? rootElement)
+		: rootElement;
+
+	return { inertDoc, virtualDOM, liveDOM };
 }
 
-export function d2Snap(
+// Unique IDs shortcut: last normalizer, unless explicitly placed (never mutates given lists).
+function resolveNormalizers(options: Pick<D2SnapOptions, "normalizers" | "uniqueIDs">): NodeNormalizerFn[] {
+	const normalizers: NodeNormalizerFn[] = [ ...options.normalizers ];
+
+	options.uniqueIDs
+		&& !normalizers.includes(assignUniqueIds)
+		&& normalizers.push(assignUniqueIds);
+
+	return normalizers;
+}
+
+// Normalizes a DOM without downsampling (pre-processing only). The live DOM is not
+// mutated, except by normalizers that explicitly write to it (unique IDs).
+export function normalizeDOM(
 	dom: DOM,
-	rE: number, rA: number, rT: number,
-	options: DeepPartial<D2SnapOptions> = {}
-): D2SnapResult {
+	options: DeepPartial<NormalizeDOMOptions> = {}
+): NormalizeDOMResult {
+	const document = resolveDocument(dom);
+	if(!document) throw new ReferenceError("Could not resolve a valid document object from DOM");
+
+	const rootElement: Element = resolveRoot(dom);
+	const optionsWithDefaults: NormalizeDOMOptions = deepMerge<NormalizeDOMOptions, DeepPartial<NormalizeDOMOptions>>({
+		classifiers: defaults.CLASSIFIERS,
+		normalizers: defaults.NORMALIZERS,
+		shadowDOM: false,
+		uniqueIDs: false
+	}, options);
+
+	const { inertDoc, virtualDOM, liveDOM } = createVirtualDOM(document, rootElement);
+
+	preProcessDOM(virtualDOM, liveDOM, inertDoc, {
+		classifiers: optionsWithDefaults.classifiers,
+		normalizers: resolveNormalizers(optionsWithDefaults),
+		shadowDOM: optionsWithDefaults.shadowDOM
+	});
+
+	return {
+		dom: virtualDOM,
+		get html() {
+			return virtualDOM.innerHTML;
+		},
+		get innerHTML() {
+			return virtualDOM.innerHTML;
+		},
+		get outerHTML() {
+			return virtualDOM.outerHTML;
+		}
+	};
+}
+
+export function d2Snap(dom: DOM, rE: number, rA: number, rT: number, options?: DeepPartial<D2SnapOptions>): D2SnapResult;
+export function d2Snap(dom: DOM, ratios: D2SnapRatios, options?: DeepPartial<D2SnapOptions>): D2SnapResult;
+export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult;	// all forms (e.g., passed through by wrappers)
+export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
+	const { rE, rA, rT, options } = resolveD2SnapArgs(args);
+
 	validateUnitParameter("rE", rE);
 	validateUnitParameter("rA", rA);
 	validateUnitParameter("rT", rT);
@@ -113,57 +207,37 @@ export function d2Snap(
 	if(!document) throw new ReferenceError("Could not resolve a valid document object from DOM");
 
 	const rootElement: Element = resolveRoot(dom)
-	const originalSize = rootElement.innerHTML.length;
+	// Same root as the snapshot (UTF-8 bytes)
+	const originalSize: number = getByteLength(serializeSnapshotRoot(rootElement));
 	const optionsWithDefaults: D2SnapOptions = deepMerge<D2SnapOptions, DeepPartial<D2SnapOptions>>({
-		attributeScores: DEFAULT_ATTRIBUTE_SCORES,
-		classification: {
-			actionableElements: DEFAULT_CLASS_ACTIONABLE_TAG_NAMES,
-			textElements: DEFAULT_CLASS_TEXT_TAG_NAMES
-		},
+		attributeScores: defaults.ATTRIBUTE_SCORES,
+		classifiers: defaults.CLASSIFIERS,
 		debug: false,
-		filter: {
-			attributes: DEFAULT_FILTER_ATTRIBUTE_NAMES,
-			dataURLs: true,
-			elements: DEFAULT_FILTER_TAG_NAMES,
-			emptyElements: true
-		},
+		filterEmptyElements: true,
 		minify: true,
-		normalize: {
-			iconClasses: DEFAULT_NORMALIZE_ATTRIBUTE_ICONFONT_VALUES,
-			labelAttributes: DEFAULT_NORMALIZE_LABEL_ATTRIBUTE_NAMES,
-			svgToImg: true
-		},
+		normalizers: defaults.NORMALIZERS,
+		shadowDOM: false,
+		sentenceRanker: defaults.SENTENCE_RANKER,
 		skip: {
 			markdown: false,
 			textRank: false
 		},
 		uniqueIDs: false
 	}, options);
-	// Aliases
-	optionsWithDefaults.attributeScores = {
- 		...DEFAULT_ATTRIBUTE_SCORES,
-
- 		...(options.attributeScoring ?? {}),
- 		...(options.attributeScores ?? {})
- 	};
-
 	const attributeScores: Map<string, number> = new Map(
 		Object.entries(optionsWithDefaults.attributeScores)
 			.map((entry: [ string, number ]) => [ entry[0].toLowerCase(), entry[1] ])
 	);
 
-	const actionableElementTagNames: Set<string> = new Set(
-		(optionsWithDefaults.classification?.actionableElements ?? [])
-			.map((tagName: string) => tagName.toUpperCase())
-	);
-	const textElementTagNames: Set<string> = new Set(
-		(optionsWithDefaults.classification?.textElements ?? [])
-			.map((tagName: string) => tagName.toUpperCase())
-	);
-
-	const _isActionableElement = (elementNode: Element) => {
-		return isActionableElement(elementNode, actionableElementTagNames);
-	};
+	const _isActionableElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.actionableElement;
+	const _isTextElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.textFormattingElement;
+	// No ranking keeps the leading sentences: null ranker, or skipped ranking (a given sentence ranker wins).
+	const _sentenceRanker: SentenceRankerFn = (
+		(optionsWithDefaults.sentenceRanker === null)
+		|| (optionsWithDefaults.skip?.textRank && !options.sentenceRanker)
+	)
+		? (sentences: string[]) => sentences
+		: optionsWithDefaults.sentenceRanker;
 
 	const turndown: Turndown = new Turndown([ _isActionableElement ]);
 
@@ -197,17 +271,34 @@ export function d2Snap(
 			?.removeChild(sourceElement);
 	}
 
+	// Document methods are bound once: property access on a jsdom document runs a named-property
+	// lookup that re-walks the whole document after mutations (quadratic across elements).
+	let contextualFragmentRange: Range | null = null;
+	let createTextNode: ((data: string) => Text) | null = null;
+
 	function snapElementTextFormattingNode(document: Document, elementNode: HTMLElement) {
 		if(optionsWithDefaults.skip?.markdown) return;
 		if(elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
 		if(_isActionableElement(elementNode)) return;
-		if(!textElementTagNames.has(elementNode.tagName.toUpperCase())) return;
+		if(!_isTextElement(elementNode)) return;
 
 		// Markdown
+		contextualFragmentRange ??= document.createRange();
+		createTextNode ??= document.createTextNode.bind(document);
+
 		const markdown = turndown.translate(elementNode.outerHTML);
-		const markdownNodesFragment = document
-			.createRange()
-			.createContextualFragment(markdown);
+
+		// Plain text (most results): a text node equals the parser result – no markup, no character
+		// references, no line break or NUL normalisation – so parsing is skipped.
+		if(!/[<&\r\0]/.test(markdown)) {
+			const replacingNodes: Node[] = markdown ? [ createTextNode(markdown) ] : [];
+
+			elementNode.replaceWith(...[ createTextNode(" "), ...replacingNodes, createTextNode(" ") ]);
+
+			return replacingNodes;
+		}
+
+		const markdownNodesFragment = contextualFragmentRange.createContextualFragment(markdown);
 
 		// Drop bogus `<scheme:>` elements the HTML parser synthesises from
 		// markdown autolinks before they enter the tree (and become containers).
@@ -233,7 +324,7 @@ export function d2Snap(
 		const replacingNodes: Node[] = [...markdownNodesFragment.childNodes];
 
 		elementNode
-			.replaceWith(...[ document.createTextNode(" "), ...replacingNodes, document.createTextNode(" ") ]);
+			.replaceWith(...[ createTextNode(" "), ...replacingNodes, createTextNode(" ") ]);
 
 		// Strip same-tag replacements before returning for re-traversal:
 		// Turndown passes some textFormatting elements through verbatim
@@ -259,7 +350,7 @@ export function d2Snap(
 
 		textNode.textContent = [
 			leadingSpace,
-			transformWithTextRank(text, (1 - rT), !!optionsWithDefaults.skip?.textRank, true, optionsWithDefaults.textRankOptions),
+			transformWithRanking(text, (1 - rT), _sentenceRanker, true),
 			trailingSpace
 		].join("");
 	}
@@ -281,50 +372,18 @@ export function d2Snap(
 	let t0: number;
 	const timings: D2SnapResult["meta"]["timings"] = {};
 
-	if(optionsWithDefaults.uniqueIDs) {
-		let i: number = 0;
-		traverseDom<Node>(
-			rootElement,
-			NodeFilter.SHOW_ELEMENT,
-			(node: Node) => {
-				const elementNode = node as Element;
-
-				if(isInlineElement(elementNode.tagName) && isVoidElement(elementNode.tagName)) return;
-
-				elementNode.setAttribute(CONFIG.uniqueAttributeName, i.toString());
-
-				i++;
-			}
-		);
-	}
-
 	// Clone
 	t0 = t();
-	const inertDoc: Document = document.implementation.createHTMLDocument("");
-	const rootElementClone: DOM = inertDoc.importNode(rootElement, true);
-	switch(rootElement.localName.toLowerCase()) {
-		case "html":
-			inertDoc.replaceChild(rootElementClone, inertDoc.documentElement);
-			break;
-		case "body":
-			inertDoc.documentElement.replaceChild(rootElementClone, inertDoc.body);
-			break;
-		default:
-			inertDoc.body.appendChild(rootElementClone);
-	}
-	// Wrap local DOM input (e.g., SECTIOn snippet) in BODY to allow destructive mutation
-	// of input DOM root.  
-	const virtualDOM = (rootElement.nodeType === NodeType.DOCUMENT_NODE)
-		? inertDoc.documentElement
-		: inertDoc.body;
+	const { inertDoc, virtualDOM, liveDOM } = createVirtualDOM(document, rootElement);
 	timings.clone = t() - t0;
 
 	// Pre-proces
 	t0 = t();
-	preProcessDOM(virtualDOM, inertDoc, {
-		filter: optionsWithDefaults.filter,
-		normalize: optionsWithDefaults.normalize
-	}, _isActionableElement);
+	preProcessDOM(virtualDOM, liveDOM, inertDoc, {
+		classifiers: optionsWithDefaults.classifiers,
+		normalizers: resolveNormalizers(optionsWithDefaults),
+		shadowDOM: optionsWithDefaults.shadowDOM
+	});
 	timings.preProcessing = t() - t0;
 
 	// Write depth and role per node
@@ -395,7 +454,7 @@ export function d2Snap(
 	// Post-process (DOM)
 	t0 = t();
 	postProcessDOM(virtualDOM, {
-		filter: optionsWithDefaults.filter,
+		filterEmptyElements: optionsWithDefaults.filterEmptyElements,
 		minify: optionsWithDefaults.minify
 	}, _isActionableElement);
 	timings.domPostProcessing = t() - t0;
@@ -440,10 +499,16 @@ export function d2Snap(
 		meta: {
 			originalSize,
 			get snapshotSize() {
-				return getHTML("innerHTML").length;
+				return getByteLength(getHTML("innerHTML"));
 			},
 			get sizeRatio() {
-				return getHTML("innerHTML").length / originalSize
+				const snapshotSize: number = getByteLength(getHTML("innerHTML"));
+
+				if(originalSize === 0) {
+					return (snapshotSize === 0) ? 1 : Infinity;
+				}
+
+				return snapshotSize / originalSize;
 			},
 			get tokenEstimate() {
 				return Math.round(getHTML("innerHTML").length / 4)

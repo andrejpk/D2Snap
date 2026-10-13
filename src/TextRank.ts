@@ -3,7 +3,7 @@
 // ------------------------------------------
 
 
-import { type TextRankOptions } from "./types.js";
+import { type TextRankSettings } from "./types.js";
 import { deepMerge } from "./util.obj.js";
 
 
@@ -14,8 +14,14 @@ interface TextRankSentence {
 }
 
 
-const SENTENCE_DELIMITER_REGEX: RegExp = /(?<=\p{Sentence_Terminal})\s|\n|\r/gu;
 const TOKEN_PATTERN_REGEX: RegExp = /[\p{L}\p{N}]+/gu;
+
+export const DEFAULT_SETTINGS: Readonly<TextRankSettings> = Object.freeze({
+	damping: 0.75,
+	maxIterations: 20,
+	minSimilarity: 0.1,
+	tolerance: 1e-4
+});
 
 
 function initArray<T>(n: number): (T | null)[] {
@@ -23,22 +29,10 @@ function initArray<T>(n: number): (T | null)[] {
 }
 
 
-export function tokenizeSentences(text: string): string[] {
-	return text
-		.split(SENTENCE_DELIMITER_REGEX)
-        .map((rawSentence: string) => rawSentence.trim())
-        .filter((sentence: string) => !!sentence);
-}
-
-export function textRank(sentences: string[], options: Partial<TextRankOptions> = {}): TextRankSentence[] {
+export function textRank(sentences: string[], options: Partial<TextRankSettings> = {}): TextRankSentence[] {
 	if (!sentences.length) return [];
 
-	const optionsWithDefaults: TextRankOptions = deepMerge({
-		damping: 0.75,
-		maxIterations: 20,
-		minSimilarity: 0.1,
-		tolerance: 1e-4
-	}, options);
+	const optionsWithDefaults: TextRankSettings = deepMerge({ ...DEFAULT_SETTINGS }, options);
 
 	const sentenceCount: number = sentences.length;
 
@@ -194,33 +188,8 @@ export function textRank(sentences: string[], options: Partial<TextRankOptions> 
 		.sort((a: TextRankSentence, b: TextRankSentence) => b.score - a.score);
 }
 
-export function transformWithTextRank(
-	text: string,
-	ratio: number = 0.5,
-	simple: boolean = false,
-	noEmpty: boolean = false,	// TODO: Add to D2Snap API?
-	textRankOptions: Partial<TextRankOptions> = {}
-): string {
-	const sentences: string[] = tokenizeSentences(text);
-	const k: number = Math.min(
-		Math.max(
-			Math.ceil(sentences.length * ratio),
-			+noEmpty
-		),
-		sentences.length
-	);
-
-	if(sentences.length <= k) return sentences.join("\n");
-
-	if(simple) {
-		return sentences
-			.slice(0, k)
-			.join("\n");
-	}
-
-	return textRank(sentences, textRankOptions)
-        .slice(0, k)
-        .sort((a, b) => a.index - b.index)
-        .map(obj => obj.sentence)
-        .join("\n");
+// Sentences ordered by TextRank score (most important first).
+export function rankSentences(sentences: string[], options: Partial<TextRankSettings> = {}): string[] {
+	return textRank(sentences, options)
+		.map((obj: TextRankSentence) => obj.sentence);
 }

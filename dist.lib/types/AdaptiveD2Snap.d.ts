@@ -5,8 +5,9 @@ export interface AdaptiveParameters {
     rA: number;
     rT: number;
 }
-export declare function adaptiveD2Snap(d2SnapFn: typeof d2Snap, dom: DOM, maxTokens?: number, // 32768
-maxIterations?: number, options?: DeepPartial<D2SnapOptions>): D2SnapResult & {
+export type AdaptiveD2SnapResult = D2SnapResult & {
     parameters: AdaptiveParameters;
     adaptiveIterations: number;
 };
+export declare function adaptiveD2Snap(d2SnapFn: typeof d2Snap, dom: DOM, maxTokens?: number, // 32768
+maxIterations?: number, options?: DeepPartial<D2SnapOptions>): AdaptiveD2SnapResult;
