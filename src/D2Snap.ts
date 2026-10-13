@@ -221,10 +221,7 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 		normalizers: defaults.NORMALIZERS,
 		shadowDOM: false,
 		sentenceRanker: defaults.SENTENCE_RANKER,
-		skip: {
-			markdown: false,
-			textRank: false
-		},
+		markdown: true,
 		uniqueIDs: false
 	}, options);
 	const attributeScores: Map<string, number> = new Map(
@@ -234,13 +231,9 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 
 	const _isActionableElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.actionableElement;
 	const _isTextElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.textFormattingElement;
-	// No ranking keeps the leading sentences: null ranker, or skipped ranking (a given sentence ranker wins).
-	const _sentenceRanker: SentenceRankerFn = (
-		(optionsWithDefaults.sentenceRanker === null)
-		|| (optionsWithDefaults.skip?.textRank && !options.sentenceRanker)
-	)
-		? (sentences: string[]) => sentences
-		: optionsWithDefaults.sentenceRanker;
+	// No ranker (null) keeps the leading sentences
+	const _sentenceRanker: SentenceRankerFn = optionsWithDefaults.sentenceRanker
+		?? ((sentences: string[]) => sentences);
 
 	const turndown: Turndown = new Turndown([ _isActionableElement ]);
 
@@ -297,7 +290,7 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 	let createTextNode: ((data: string) => Text) | null = null;
 
 	function snapElementTextFormattingNode(document: Document, elementNode: HTMLElement) {
-		if(optionsWithDefaults.skip?.markdown) return;
+		if(!optionsWithDefaults.markdown) return;
 		if(elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
 		if(_isActionableElement(elementNode)) return;
 		if(!_isTextElement(elementNode)) return;

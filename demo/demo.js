@@ -242,6 +242,7 @@
 			debug: true,
 			minify: false,	// Input is minified and formatted upon paste
 			filterEmptyElements: downsamplingInputs.normalizers.checked,
+			markdown: !downsamplingInputs.markdown.checked,
 			prose: downsamplingInputs.prose.checked,
 			uniqueIDs: downsamplingInputs.uniqueIDs.checked,
 			normalizers: downsamplingInputs.normalizers.checked
@@ -249,10 +250,7 @@
 				: [],
 			sentenceRanker: downsamplingInputs.textRanker.checked
 				? D2Snap.defaults.SENTENCE_RANKER
-				: null,
-			skip: {
-				markdown: !downsamplingInputs.markdown.checked
-			}
+				: null
 		};
 
 		const start = performance.now();

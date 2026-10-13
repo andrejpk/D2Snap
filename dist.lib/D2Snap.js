@@ -132,10 +132,7 @@ function d2Snap(dom, ...args) {
     normalizers: defaults.NORMALIZERS,
     shadowDOM: false,
     sentenceRanker: defaults.SENTENCE_RANKER,
-    skip: {
-      markdown: false,
-      textRank: false
-    },
+    markdown: true,
     uniqueIDs: false
   }, options);
   const attributeScores = new Map(
@@ -143,7 +140,7 @@ function d2Snap(dom, ...args) {
   );
   const _isActionableElement = optionsWithDefaults.classifiers.actionableElement;
   const _isTextElement = optionsWithDefaults.classifiers.textFormattingElement;
-  const _sentenceRanker = optionsWithDefaults.sentenceRanker === null || optionsWithDefaults.skip?.textRank && !options.sentenceRanker ? (sentences) => sentences : optionsWithDefaults.sentenceRanker;
+  const _sentenceRanker = optionsWithDefaults.sentenceRanker ?? ((sentences) => sentences);
   const turndown = new Turndown([_isActionableElement]);
   function snapElementContainerNode(elementNode, rE2) {
     const considerContainerElement = (elementNode2) => {
@@ -179,7 +176,7 @@ function d2Snap(dom, ...args) {
   let contextualFragmentRange = null;
   let createTextNode = null;
   function snapElementTextFormattingNode(document2, elementNode) {
-    if (optionsWithDefaults.skip?.markdown) return;
+    if (!optionsWithDefaults.markdown) return;
     if (elementNode.nodeType !== NodeType.ELEMENT_NODE) return;
     if (_isActionableElement(elementNode)) return;
     if (!_isTextElement(elementNode)) return;

@@ -224,9 +224,7 @@ await test("Markdown autolink URL does not become a bogus container element", as
             </html>
         `;
 		const snapshot = await d2Snap(html, 0, 0, 0, {
-			skip: {
-				textRank: true
-			}
+			sentenceRanker: null
 		});
 
 		// Canary: the <p> must have gone through Turndown, otherwise nothing below is exercised
@@ -253,9 +251,7 @@ await test("Markdown autolink URL does not become a bogus container element", as
         </html>
     `;
 	const linkSnapshot = await d2Snap(linkHTML, 0, 0, 0, {
-		skip: {
-			textRank: true
-		}
+		sentenceRanker: null
 	});
 
 	assertNotIn("<p", linkSnapshot.html, "Markdown pass did not run for kept-anchor case");
@@ -419,9 +415,7 @@ await test("Escaped markup in text never re-parses into elements (markdown pass)
         `<main><button>Add &lt;b&gt;extra cheese&lt;/b&gt; &lt;img src=x&gt;</button></main>`
     ]) {
         const snapshot = await d2Snap(html, 0, 0, 0, {
-            skip: {
-                textRank: true
-            }
+            sentenceRanker: null
         });
 
         assertEqual(snapshot.dom.querySelectorAll("img, script, b").length, 0, `Escaped markup became elements: ${snapshot.html}`);
@@ -748,9 +742,7 @@ await test("Data-URL-only image is removed with default normalizers", async () =
         </main>
     `;
     const snapshot = await d2Snap(html, 0, 1, 0, {
-        skip: {
-            markdown: true
-        }
+        markdown: false
     });
 
     assertEqual(snapshot.dom.querySelectorAll("img").length, 1, "Data-URL-only image was not removed");
@@ -772,9 +764,7 @@ await test("Size metadata measures the same root as the snapshot, in UTF-8 bytes
         minify: false,
         normalizers: [],
         sentenceRanker: sentences => sentences,
-        skip: {
-            markdown: true
-        }
+        markdown: false
     };
 
     const document = new JSDOM(`<html><head><title>Kebab</title></head><body>${html}</body></html>`).window.document;
@@ -807,9 +797,7 @@ await test("Preformatted whitespace survives minification and formatting (no siz
         filterEmptyElements: false,
         normalizers: [],
         sentenceRanker: sentences => sentences,
-        skip: {
-            markdown: true
-        }
+        markdown: false
     };
 
     // Snapshot notation without reduction, fed back as input
@@ -835,9 +823,7 @@ await test("Debug formatting keeps spaces between inline elements", async () => 
         filterEmptyElements: false,
         normalizers: [],
         sentenceRanker: null,
-        skip: {
-            markdown: true
-        }
+        markdown: false
     };
 
     const snapshot = await d2Snap(html, 0, 0, 0, options);
@@ -941,7 +927,7 @@ await test("Prose with child elements is downsampled as one text (prose option)"
     const plainSentences = sentences.map(sentence => new JSDOM(sentence).window.document.body.textContent);
     const textOf = dom => dom.textContent.replace(/\s+/g, " ").trim();
 
-    const options = { prose: true, skip: { markdown: true } };
+    const options = { prose: true, markdown: false };
     const fullText = textOf((await d2Snap(html, 0, 0, 0, options)).dom);
     const snapshot = await d2Snap(html, 0, 0, 1, options);
     const keptText = textOf(snapshot.dom);

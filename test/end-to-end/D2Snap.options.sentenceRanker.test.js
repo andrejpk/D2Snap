@@ -36,38 +36,11 @@ await test("Take DOM snapshot (options.sentenceRanker)", async () => {
         "Invalid DOM snapshot (sentence ranker; drops lowest-ranked sentence)"
     );
 
-    // Given sentence ranker wins over skipped ranking
-    const snapshotSkip = await d2Snap(FRIES_HTML, 1, 1, 0.5, {
-        debug: true,
-        sentenceRanker: reverseSentenceRanker,
-        skip: {
-            textRank: true
-        }
-    });
-
-    assertEqual(
-        snapshotSkip.html,
-        snapshot.html,
-        "Invalid DOM snapshot (sentence ranker overrides skip.textRank)"
-    );
-
-    // No sentence ranker: leading sentences are kept (as with skipped ranking)
+    // No sentence ranker: leading sentences are kept
     const snapshotNoRanker = await d2Snap(FRIES_HTML, 1, 1, 0.5, {
         debug: true,
         sentenceRanker: null
     });
-    const snapshotSkipRanking = await d2Snap(FRIES_HTML, 1, 1, 0.5, {
-        debug: true,
-        skip: {
-            textRank: true
-        }
-    });
-
-    assertEqual(
-        snapshotNoRanker.html,
-        snapshotSkipRanking.html,
-        "Invalid DOM snapshot (no sentence ranker; expects leading sentences)"
-    );
 
     assertIn(
         "Fries are thin strips of deep-fried potato.",

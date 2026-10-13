@@ -2757,10 +2757,7 @@
       normalizers: NORMALIZERS,
       shadowDOM: false,
       sentenceRanker: SENTENCE_RANKER,
-      skip: {
-        markdown: false,
-        textRank: false
-      },
+      markdown: true,
       uniqueIDs: false
     }, options);
     const attributeScores = new Map(
@@ -2768,7 +2765,7 @@
     );
     const _isActionableElement = optionsWithDefaults.classifiers.actionableElement;
     const _isTextElement = optionsWithDefaults.classifiers.textFormattingElement;
-    const _sentenceRanker = optionsWithDefaults.sentenceRanker === null || optionsWithDefaults.skip?.textRank && !options.sentenceRanker ? (sentences) => sentences : optionsWithDefaults.sentenceRanker;
+    const _sentenceRanker = optionsWithDefaults.sentenceRanker ?? ((sentences) => sentences);
     const turndown = new Turndown([_isActionableElement]);
     function snapElementContainerNode(elementNode, rE2) {
       const considerContainerElement = (elementNode2) => {
@@ -2804,7 +2801,7 @@
     let contextualFragmentRange = null;
     let createTextNode = null;
     function snapElementTextFormattingNode(document3, elementNode) {
-      if (optionsWithDefaults.skip?.markdown) return;
+      if (!optionsWithDefaults.markdown) return;
       if (elementNode.nodeType !== 1 /* ELEMENT_NODE */) return;
       if (_isActionableElement(elementNode)) return;
       if (!_isTextElement(elementNode)) return;

@@ -56,10 +56,8 @@ export interface D2SnapOptions {
     prose: boolean;
     /** One ranker, or null for no ranking (leading sentences are kept). */
     sentenceRanker: SentenceRankerFn | null;
-    skip: {
-        markdown: boolean;
-        textRank: boolean;
-    };
+    /** Translate text formatting elements (classifiers.textFormattingElement) to Markdown. */
+    markdown: boolean;
     minify: boolean;
     shadowDOM: boolean;
     uniqueIDs: boolean;
