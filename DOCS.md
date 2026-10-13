@@ -214,16 +214,13 @@ interface D2SnapOptions {
     [ name: string ]: number;
   };
   classifiers?: {
-    actionableElements?: ElementClassifierFn<Element>;
-    textElements?: ElementClassifierFn<Element>;
+    actionableElement?: ElementClassifierFn<Element>;
+    textFormattingElement?: ElementClassifierFn<Element>;
   };
   normalizers?: NodeNormalizerFn[];
+  markdown?: boolean;
   prose?: boolean;
   sentenceRanker?: SentenceRankerFn | null;
-  skip?: {
-    markdown?: boolean;
-    textRank?: boolean;
-  };
 };
 ```
 
@@ -235,11 +232,11 @@ interface D2SnapOptions {
 | `shadowDOM` | Toggle whether to compose open shadow roots (incl. slotted content) into the snapshot. Closed shadow roots are inaccessible, so only their light content is kept. |
 | `uniqueIDs` | Toggle whether to add unique IDs to the input and output DOM via `data-uid` attribute. If the input DOM is a live reference, elements from the downsampled DOM can be traced back to elements in the live DOM (e.g., for dispatching actions). IDs are stable across snapshots of the same document. Shortcut for appending `defaults.normalizers.assignUniqueIds` to `normalizers` (unless already contained). |
 | `attributeScores` | Attribute scores for threshold-based removal (see [constants.defaults.ts](./src/constants.defaults.ts)). |
-| `classifiers` | HTML syntax-to-concept classification callbacks: `actionableElements` – what counts as an actionable, `textElements` – what should be translated to Markdown (see [Classifiers](#classifiers)). |
+| `classifiers` | HTML syntax-to-concept classification callbacks: `actionableElement` – whether an element is actionable, `textFormattingElement` – whether an element is a text formatting element (translated to Markdown) (see [Classifiers](#classifiers)). |
 | `normalizers` | Ordered chain of callbacks that normalise the DOM before downsampling (see [Normalizers](#normalizers)). Replaces the default chain; reuse `defaults.NORMALIZERS` for subsets, supersets, or other orders. |
+| `markdown` | Toggle translating text formatting elements (`classifiers.textFormattingElement`) to Markdown. |
 | `prose` | Toggle per-element text downsampling: the direct text nodes of an element form one text, ranked across its child elements (see the note on text downsampling above). Off: per text node (as described in the paper). |
 | `sentenceRanker` | Callback that ranks the sentences of a text by relevance, or `null` for no ranking (the leading sentences are kept; see [Sentence Rankers](#sentence-rankers)). |
-| `skip` | Toggle absolute downsampling measures: `markdown` – whether to skip translating text formatting elements (`classifiers.textElements`) to Markdown, `textRank` – whether to skip ranking text sentences before text-downsampling truncation (keeps the leading sentences; equivalent to `sentenceRanker: null`, a given `sentenceRanker` takes precedence). |
 
 > The attribute scores map supports wildcard suffixes for hyphenated attribute names (e.g., `aria-*` or `data-*`; the longest matching prefix wins), and a fallback score via `*`.
 
@@ -255,12 +252,9 @@ interface D2SnapOptions {
   attributeScores: defaults.ATTRIBUTE_SCORES,
   classifiers: defaults.CLASSIFIERS,
   normalizers: defaults.NORMALIZERS,
+  markdown: true,
   prose: false,
-  sentenceRanker: defaults.SENTENCE_RANKER,
-  skip: {
-    markdown: false,
-    textRank: false
-  }
+  sentenceRanker: defaults.SENTENCE_RANKER
 }
 ```
 
@@ -440,7 +434,7 @@ import { defaults } from "@webfuse-com/d2snap";
 | Property | Description |
 | :-| :- |
 | `ATTRIBUTE_SCORES` | Default attribute scores (`attributeScores` option). |
-| `CLASSIFIERS` | Default classifiers (`classifiers` option): `{ actionableElements: classifiers.isActionableElement, textElements: classifiers.isTextElement }`. |
+| `CLASSIFIERS` | Default classifiers (`classifiers` option): `{ actionableElement: classifiers.isActionableElement, textFormattingElement: classifiers.isTextElement }`. |
 | `CLASSIFIER_SETTINGS` | Default settings per classifier callback (by name). |
 | `NORMALIZERS` | Default normalizer chain (`normalizers` option). |
 | `NORMALIZER_SETTINGS` | Default settings per normalizer callback (by name). |
@@ -649,7 +643,7 @@ const isActionableElement = element => {
 
 await d2Snap(html, 0.5, 0.5, 0.5, {
   classifiers: {
-    actionableElements: isActionableElement
+    actionableElement: isActionableElement
   }
 });
 ```
@@ -674,7 +668,7 @@ await d2Snap(`
         ? normalizeTextLabelAttributesToContent
         : normalizer),
     classifiers: {
-      actionableElements: isActionableElement
+      actionableElement: isActionableElement
     }
   }
 );
@@ -733,7 +727,7 @@ const settings: Partial<defaults.normalizers.FilterNoiseElementsSettings> = {
 ## Limitations
 
 - **Long texts**: TextRank compares all sentence pairs of a text, so time and memory grow quadratically with the sentence count per text node (per element text with the `prose` option). A single text with tens of thousands of sentences can exhaust memory; use another sentence ranker, or `null`, for such input.
-- **Wide text formatting elements**: Markdown translation converts each text formatting element as a whole. For a single element with thousands of children (e.g., a long list), the conversion time grows quadratically (skip with `skip.markdown`).
+- **Wide text formatting elements**: Markdown translation converts each text formatting element as a whole. For a single element with thousands of children (e.g., a long list), the conversion time grows quadratically (avoid with `markdown: false`).
 - **Deep nesting (Node.js)**: jsdom's HTML serializer exceeds the call stack at roughly 3,000 levels of nesting.
 - **jsdom versions (Node.js)**: DOM operations of older jsdom versions grow superlinearly for wide or deep DOMs; use jsdom 30 or later.
 
