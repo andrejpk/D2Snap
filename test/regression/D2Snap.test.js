@@ -915,3 +915,30 @@ await test("Selector queries do not grow with the page", async () => {
         );
     }
 });
+
+// ---------------------------------------------------------------------------
+// Unique IDs continued from a counter that was initialised from the live
+// document only once: an ID the page assigned later (e.g., to an inserted
+// element) was handed out again in the next snapshot, violating uniqueness.
+// Candidates are checked against the IDs present at each snapshot.
+// ---------------------------------------------------------------------------
+await test("Unique IDs stay unique when the page assigns IDs between snapshots", async () => {
+    const { window } = new JSDOM(`<main><button>Add</button></main>`);
+    const document = window.document;
+    const uniqueIDs = () => [ ...document.querySelectorAll("[data-uid]") ].map(element => element.getAttribute("data-uid"));
+
+    await d2Snap(document, 0, 0, 0, { uniqueIDs: true });
+    const firstIDs = uniqueIDs();
+
+    // The page inserts an element with the next ID, and an unlabelled one
+    const next = String(Math.max(...firstIDs.map(Number)) + 1);
+    document.querySelector("main").insertAdjacentHTML("beforeend", `<button data-uid="${next}">Page</button><button>New</button>`);
+
+    await d2Snap(document, 0, 0, 0, { uniqueIDs: true });
+    const secondIDs = uniqueIDs();
+
+    assertEqual(new Set(secondIDs).size, secondIDs.length, `Duplicate unique IDs: ${secondIDs.join(", ")}`);
+    assertEqual(secondIDs.slice(0, firstIDs.length), firstIDs, "Unique IDs not stable across snapshots");
+
+    window.close();
+});

@@ -2204,29 +2204,36 @@
     attributeName: CONFIG.uniqueAttributeName
   });
   var NEXT_UNIQUE_IDS = /* @__PURE__ */ new WeakMap();
+  var OCCUPIED_UNIQUE_IDS = /* @__PURE__ */ new WeakMap();
   function resolveAttributeAsString5(elementNode, attributeName) {
     return (elementNode.getAttribute(attributeName) ?? "").trim();
   }
-  function resolveNextUniqueID(liveDocument, attributeName) {
-    !NEXT_UNIQUE_IDS.has(liveDocument) && NEXT_UNIQUE_IDS.set(liveDocument, /* @__PURE__ */ new Map());
-    const nextUniqueIDs = NEXT_UNIQUE_IDS.get(liveDocument);
-    if (!nextUniqueIDs.has(attributeName)) {
-      const maxUniqueID = [...liveDocument.querySelectorAll(`[${attributeName}]`)].reduce((max, elementNode) => {
-        return Math.max(max, parseInt(resolveAttributeAsString5(elementNode, attributeName)) || 0);
-      }, -1);
-      nextUniqueIDs.set(attributeName, maxUniqueID + 1);
-    }
-    const uniqueID = nextUniqueIDs.get(attributeName);
-    nextUniqueIDs.set(attributeName, uniqueID + 1);
-    return uniqueID;
+  function resolveMap(map, key) {
+    !map.has(key) && map.set(key, /* @__PURE__ */ new Map());
+    return map.get(key);
   }
-  var assign_unique_ids_default = forElements((virtualElement, liveElement, _context, settings = {}) => {
+  function allocateUniqueID(liveDocument, virtualDocument, attributeName) {
+    const occupiedUniqueIDsByAttribute = resolveMap(OCCUPIED_UNIQUE_IDS, virtualDocument);
+    if (!occupiedUniqueIDsByAttribute.has(attributeName)) {
+      occupiedUniqueIDsByAttribute.set(attributeName, new Set(
+        [...liveDocument.querySelectorAll(`[${attributeName}]`)].map((elementNode) => resolveAttributeAsString5(elementNode, attributeName))
+      ));
+    }
+    const occupiedUniqueIDs = occupiedUniqueIDsByAttribute.get(attributeName);
+    const nextUniqueIDs = resolveMap(NEXT_UNIQUE_IDS, liveDocument);
+    let uniqueID = nextUniqueIDs.get(attributeName) ?? [...occupiedUniqueIDs].reduce((max, id) => Math.max(max, parseInt(id) || 0), -1) + 1;
+    while (occupiedUniqueIDs.has(uniqueID.toString())) uniqueID++;
+    occupiedUniqueIDs.add(uniqueID.toString());
+    nextUniqueIDs.set(attributeName, uniqueID + 1);
+    return uniqueID.toString();
+  }
+  var assign_unique_ids_default = forElements((virtualElement, liveElement, context, settings = {}) => {
     const attributeName = settings.attributeName ?? DEFAULT_SETTINGS11.attributeName;
     if (liveElement === virtualElement) return;
     if (isInlineElement(liveElement.tagName) && isVoidElement(liveElement.tagName)) return;
     let uniqueID = resolveAttributeAsString5(liveElement, attributeName);
     if (!uniqueID) {
-      uniqueID = resolveNextUniqueID(liveElement.ownerDocument, attributeName).toString();
+      uniqueID = allocateUniqueID(liveElement.ownerDocument, context.document, attributeName);
       liveElement.setAttribute(attributeName, uniqueID);
     }
     virtualElement.setAttribute(attributeName, uniqueID);
