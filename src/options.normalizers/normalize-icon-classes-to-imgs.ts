@@ -152,7 +152,7 @@ export default forElements<NormalizeIconClassesToImgsSettings>((
 		if(iconfontsInClass) {
 			const alt: string = resolveLabel(liveElement, document, labelAttributeNames) ?? iconfontsInClass;
 
-			if(!context.classifiers.actionableElements(liveElement)) {
+			if(!context.classifiers.actionableElement(liveElement)) {
 				replaceElementByImage(virtualElement, document, alt);
 			} else {
 				virtualElement.prepend(createImage(document, alt));

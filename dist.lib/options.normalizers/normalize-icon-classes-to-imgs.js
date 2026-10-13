@@ -87,7 +87,7 @@ var normalize_icon_classes_to_imgs_default = forElements((virtualElement, liveEl
     }
     if (iconfontsInClass) {
       const alt = resolveLabel(liveElement, document, labelAttributeNames) ?? iconfontsInClass;
-      if (!context.classifiers.actionableElements(liveElement)) {
+      if (!context.classifiers.actionableElement(liveElement)) {
         replaceElementByImage(virtualElement, document, alt);
       } else {
         virtualElement.prepend(createImage(document, alt));

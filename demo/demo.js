@@ -133,22 +133,11 @@
 		});
 	}
 
-	function getIndexListRepresentation(dom) {
-		return [ ...dom.querySelectorAll("*") ]
-			.map((element, i) => {
-				const uid = element.getAttribute("data-uid");
-				const text = getTruncatedDirectText(element);
-
-				return `[${uid ?? i}] ${element.tagName.toUpperCase()}${text ? ` "${text}"` : ""}`;
-			})
-			.join("\n");
-	}
-
 	function getIndexJSONRepresentation(dom) {
 		return JSON.stringify(
 			[ ...dom.querySelectorAll("*") ]
 				.map(element => {
-					const text = getTruncatedDirectText(element);
+					const text = getDirectText(element);
 					const uid = element.getAttribute("data-uid");
 					const role = element.getAttribute("role");
 
@@ -163,6 +152,17 @@
 			null,
 			2
 		);
+	}
+
+	function getIndexListRepresentation(dom) {
+		return [ ...dom.querySelectorAll("*") ]
+			.map((element, i) => {
+				const uid = element.getAttribute("data-uid");
+				const text = getTruncatedDirectText(element);
+
+				return `[${uid ?? i}] ${element.tagName.toUpperCase()}${text ? ` "${text}"` : ""}`;
+			})
+			.join("\n");
 	}
 
 	function updateMeta(meta) {
@@ -263,7 +263,7 @@
 				...options,
 
 				classifiers: {
-					actionableElements: isActionableOrTextElement
+					actionableElement: isActionableOrTextElement
 				}
 			}
 		);

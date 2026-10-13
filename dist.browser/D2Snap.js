@@ -2050,7 +2050,7 @@
       }
       if (iconfontsInClass) {
         const alt = resolveLabel2(liveElement, document2, labelAttributeNames) ?? iconfontsInClass;
-        if (!context.classifiers.actionableElements(liveElement)) {
+        if (!context.classifiers.actionableElement(liveElement)) {
           replaceElementByImage(virtualElement, document2, alt);
         } else {
           virtualElement.prepend(createImage(document2, alt));
@@ -2204,29 +2204,36 @@
     attributeName: CONFIG.uniqueAttributeName
   });
   var NEXT_UNIQUE_IDS = /* @__PURE__ */ new WeakMap();
+  var OCCUPIED_UNIQUE_IDS = /* @__PURE__ */ new WeakMap();
   function resolveAttributeAsString5(elementNode, attributeName) {
     return (elementNode.getAttribute(attributeName) ?? "").trim();
   }
-  function resolveNextUniqueID(liveDocument, attributeName) {
-    !NEXT_UNIQUE_IDS.has(liveDocument) && NEXT_UNIQUE_IDS.set(liveDocument, /* @__PURE__ */ new Map());
-    const nextUniqueIDs = NEXT_UNIQUE_IDS.get(liveDocument);
-    if (!nextUniqueIDs.has(attributeName)) {
-      const maxUniqueID = [...liveDocument.querySelectorAll(`[${attributeName}]`)].reduce((max, elementNode) => {
-        return Math.max(max, parseInt(resolveAttributeAsString5(elementNode, attributeName)) || 0);
-      }, -1);
-      nextUniqueIDs.set(attributeName, maxUniqueID + 1);
-    }
-    const uniqueID = nextUniqueIDs.get(attributeName);
-    nextUniqueIDs.set(attributeName, uniqueID + 1);
-    return uniqueID;
+  function resolveMap(map, key) {
+    !map.has(key) && map.set(key, /* @__PURE__ */ new Map());
+    return map.get(key);
   }
-  var assign_unique_ids_default = forElements((virtualElement, liveElement, _context, settings = {}) => {
+  function allocateUniqueID(liveDocument, virtualDocument, attributeName) {
+    const occupiedUniqueIDsByAttribute = resolveMap(OCCUPIED_UNIQUE_IDS, virtualDocument);
+    if (!occupiedUniqueIDsByAttribute.has(attributeName)) {
+      occupiedUniqueIDsByAttribute.set(attributeName, new Set(
+        [...liveDocument.querySelectorAll(`[${attributeName}]`)].map((elementNode) => resolveAttributeAsString5(elementNode, attributeName))
+      ));
+    }
+    const occupiedUniqueIDs = occupiedUniqueIDsByAttribute.get(attributeName);
+    const nextUniqueIDs = resolveMap(NEXT_UNIQUE_IDS, liveDocument);
+    let uniqueID = nextUniqueIDs.get(attributeName) ?? [...occupiedUniqueIDs].reduce((max, id) => Math.max(max, parseInt(id) || 0), -1) + 1;
+    while (occupiedUniqueIDs.has(uniqueID.toString())) uniqueID++;
+    occupiedUniqueIDs.add(uniqueID.toString());
+    nextUniqueIDs.set(attributeName, uniqueID + 1);
+    return uniqueID.toString();
+  }
+  var assign_unique_ids_default = forElements((virtualElement, liveElement, context, settings = {}) => {
     const attributeName = settings.attributeName ?? DEFAULT_SETTINGS11.attributeName;
     if (liveElement === virtualElement) return;
     if (isInlineElement(liveElement.tagName) && isVoidElement(liveElement.tagName)) return;
     let uniqueID = resolveAttributeAsString5(liveElement, attributeName);
     if (!uniqueID) {
-      uniqueID = resolveNextUniqueID(liveElement.ownerDocument, attributeName).toString();
+      uniqueID = allocateUniqueID(liveElement.ownerDocument, context.document, attributeName);
       liveElement.setAttribute(attributeName, uniqueID);
     }
     virtualElement.setAttribute(attributeName, uniqueID);
@@ -2459,8 +2466,8 @@
     "*": 0
   });
   var CLASSIFIERS = Object.freeze({
-    actionableElements: is_actionable_element_default,
-    textElements: is_text_element_default
+    actionableElement: is_actionable_element_default,
+    textFormattingElement: is_text_element_default
   });
   var NORMALIZERS = Object.freeze([
     filter_comments_default,
@@ -2624,8 +2631,8 @@
     const attributeScores = new Map(
       Object.entries(optionsWithDefaults.attributeScores).map((entry) => [entry[0].toLowerCase(), entry[1]])
     );
-    const _isActionableElement = optionsWithDefaults.classifiers.actionableElements;
-    const _isTextElement = optionsWithDefaults.classifiers.textElements;
+    const _isActionableElement = optionsWithDefaults.classifiers.actionableElement;
+    const _isTextElement = optionsWithDefaults.classifiers.textFormattingElement;
     const _sentenceRanker = optionsWithDefaults.sentenceRanker === null || optionsWithDefaults.skip?.textRank && !options.sentenceRanker ? (sentences) => sentences : optionsWithDefaults.sentenceRanker;
     const turndown = new Turndown([_isActionableElement]);
     function snapElementContainerNode(elementNode, rE2) {

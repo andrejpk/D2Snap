@@ -229,8 +229,8 @@ export function d2Snap(dom: DOM, ...args: D2SnapArgs): D2SnapResult {
 			.map((entry: [ string, number ]) => [ entry[0].toLowerCase(), entry[1] ])
 	);
 
-	const _isActionableElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.actionableElements;
-	const _isTextElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.textElements;
+	const _isActionableElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.actionableElement;
+	const _isTextElement: ElementClassifierFn<Element> = optionsWithDefaults.classifiers.textFormattingElement;
 	// No ranking keeps the leading sentences: null ranker, or skipped ranking (a given sentence ranker wins).
 	const _sentenceRanker: SentenceRankerFn = (
 		(optionsWithDefaults.sentenceRanker === null)

@@ -139,8 +139,8 @@ function d2Snap(dom, ...args) {
   const attributeScores = new Map(
     Object.entries(optionsWithDefaults.attributeScores).map((entry) => [entry[0].toLowerCase(), entry[1]])
   );
-  const _isActionableElement = optionsWithDefaults.classifiers.actionableElements;
-  const _isTextElement = optionsWithDefaults.classifiers.textElements;
+  const _isActionableElement = optionsWithDefaults.classifiers.actionableElement;
+  const _isTextElement = optionsWithDefaults.classifiers.textFormattingElement;
   const _sentenceRanker = optionsWithDefaults.sentenceRanker === null || optionsWithDefaults.skip?.textRank && !options.sentenceRanker ? (sentences) => sentences : optionsWithDefaults.sentenceRanker;
   const turndown = new Turndown([_isActionableElement]);
   function snapElementContainerNode(elementNode, rE2) {

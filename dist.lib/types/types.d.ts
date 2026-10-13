@@ -29,8 +29,8 @@ export interface TextRankSettings {
 export interface D2SnapOptions {
     attributeScores: AttributeScoring;
     classifiers: {
-        actionableElements: ElementClassifierFn<Element>;
-        textElements: ElementClassifierFn<Element>;
+        actionableElement: ElementClassifierFn<Element>;
+        textFormattingElement: ElementClassifierFn<Element>;
     };
     debug: boolean;
     filterEmptyElements: boolean;
